@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: investor-intel-api
+    runtime: python
+    plan: starter
+    autoDeploy: true
+
+    buildCommand: python -m pip install -r requirements.txt
+    startCommand: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port $PORT
+      --proxy-headers
+      --forwarded-allow-ips '*'
+
+    healthCheckPath: /health
+
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+
+      # Secrets (set these in Render; do not commit real values)
+      - key: API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # Optional tuning (defaults are in app/config.py)
+      - key: REQUEST_TIMEOUT_SECONDS
+        value: "20"
+      - key: RATE_LIMIT_WINDOW_SECONDS
+        value: "60"
+      - key: RATE_LIMIT_MAX_REQUESTS
+        value: "60"
+      - key: LLM_MODEL
+        value: "claude-3-5-sonnet-latest"
+      - key: LLM_MAX_TOKENS
+        value: "800"
