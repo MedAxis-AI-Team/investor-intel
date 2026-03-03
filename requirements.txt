@@ -1,0 +1,15 @@
+# FastAPI
+fastapi
+uvicorn[standard]
+
+# Utilities
+pydantic-settings
+httpx
+
+# LLM
+anthropic
+
+# Testing
+pytest
+pytest-asyncio
+coverage
