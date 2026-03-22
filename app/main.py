@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routers.analyze_signal import router as analyze_signal_router
+from app.api.routers.benchmark import router as benchmark_router
 from app.api.routers.generate_digest import router as generate_digest_router
 from app.api.routers.health import router as health_router
 from app.api.routers.score_grants import router as score_grants_router
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
     app.include_router(analyze_signal_router)
     app.include_router(generate_digest_router)
     app.include_router(score_grants_router)
+    app.include_router(benchmark_router)
 
     return app
 

@@ -1,57 +1,175 @@
-## Plan
-- Install dependencies and set environment variables.
-- Run the FastAPI server locally.
-- Use the Phase 1 endpoints with `X-API-Key`.
-- Run tests and coverage (80%+ required).
+# Investor Intelligence API
 
-## Investor Intelligence API (Jerome)
-Stateless FastAPI service intended to be called from N8N workflows.
+Stateless FastAPI service that provides LLM-powered investor intelligence. Called from N8N workflows (N8N handles auth upstream). Returns structured intelligence outputs only — delivery and formatting (HTML email, PDF reports, CRM writes, etc.) is handled downstream.
 
-### Delivery-agnostic principle
-This API returns **structured intelligence outputs** only. Delivery and formatting (HTML email, PDF reports, CRM writes, etc.) is handled downstream in N8N workflows per engagement/client.
+## Requirements
 
-### Requirements
 - Python 3.12+
+- `ANTHROPIC_API_KEY` (for LLM calls)
 
-### Setup
+## Setup
+
 ```bash
 python -m venv venv
-venv\\Scripts\\activate
+source venv/bin/activate
 pip install -r requirements.txt
-copy .env.example .env
+cp .env.example .env   # then set ANTHROPIC_API_KEY
 ```
 
-Set these env vars in `.env`:
-- `API_KEY`
-- `ANTHROPIC_API_KEY`
+## Run
 
-### Run
 ```bash
+source venv/bin/activate
 uvicorn app.main:app --reload
 ```
 
-Docs UI is available at `/` (root).
+Docs UI at `/` (root). Health check at `/health`.
 
-### Endpoints
-- `GET /health` (no auth)
-- `POST /score-investors` (auth + rate limited)
-- `POST /analyze-signal` (auth + rate limited)
-- `POST /generate-digest` (auth + rate limited)
+## Endpoints
 
-Example request (PowerShell):
-```powershell
-$headers = @{ "X-API-Key" = "your-api-key" }
-$body = @{
-  client = @{ name = "NovaBio"; thesis = "Diagnostics" }
-  investors = @(@{ name = "Firm A" }, @{ name = "Firm B" })
-} | ConvertTo-Json -Depth 10
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/health` | none | Health check |
+| `POST` | `/score-investors` | rate limited | 6-axis investor scoring with confidence tiers |
+| `POST` | `/analyze-signal` | rate limited | Signal analysis (news, events) |
+| `POST` | `/generate-digest` | rate limited | Investor digest generation |
+| `POST` | `/score-grants` | rate limited | Grant opportunity scoring |
 
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/score-investors" -Headers $headers -Body $body -ContentType "application/json"
-```
+No API key required — N8N handles auth upstream.
 
-### Tests
+### Example request
+
 ```bash
-python -m pytest
-coverage run -m pytest
-coverage report -m
+curl -X POST http://localhost:8000/score-investors \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client": {
+      "name": "NovaBio Therapeutics",
+      "thesis": "CAR-T cell therapies for solid tumors",
+      "geography": "US",
+      "funding_target": "$15M Series A"
+    },
+    "investors": [
+      { "name": "OrbiMed Advisors", "notes": "Healthcare VC, $23B+ AUM" },
+      { "name": "Sequoia Capital", "notes": "Generalist VC" }
+    ]
+  }'
 ```
+
+## Tests
+
+```bash
+source venv/bin/activate
+
+# Run all tests (51 total: 20 API + 31 benchmark)
+python -m pytest
+
+# Verbose output
+python -m pytest -v
+
+# Single file
+python -m pytest tests/api/test_score_investors.py
+
+# Single test
+python -m pytest tests/api/test_score_investors.py::test_score_investors_returns_batch_results
+
+# Coverage (80%+ required)
+coverage run -m pytest && coverage report -m
+```
+
+Tests use a `_FakeLlmClient` — no real Anthropic calls are made.
+
+### Test structure
+
+```
+tests/
+  api/
+    test_score_investors.py    # 4 tests — batch scoring, confidence, null sci_reg
+    test_analyze_signal.py     # 4 tests — signal analysis variants
+    test_generate_digest.py    # 1 test  — digest structure
+    test_score_grants.py       # 9 tests — grant scoring, sorting, validation
+    test_health.py             # 1 test
+    test_rate_limit.py         # 1 test
+  benchmark/
+    test_validators.py         # 14 tests — field, computation, URL validators
+    test_confusion.py          # 6 tests  — confusion matrix builder
+    test_calibration.py        # 6 tests  — confidence calibration + ECE
+    test_reporter.py           # 5 tests  — summary generation + trends
+```
+
+## Benchmarking
+
+The benchmarking system evaluates investor scoring accuracy against known investor-client pairs. It tracks hit rates, validates outputs, and calibrates confidence scores.
+
+### Run a benchmark
+
+Requires a real `ANTHROPIC_API_KEY` in `.env`.
+
+```bash
+source venv/bin/activate
+
+# Full evaluation (calls real LLM)
+python -m benchmarks.cli --dataset benchmarks/dataset.json
+
+# Fast run — skip URL reachability and consistency checks
+python -m benchmarks.cli --skip-url-check --skip-consistency
+
+# Run on first 3 cases only
+python -m benchmarks.cli --sample-size 3 --skip-url-check --skip-consistency
+
+# View summary of previous runs (no LLM calls)
+python -m benchmarks.cli --summary-only
+
+# Debug logging
+python -m benchmarks.cli --verbose --skip-url-check --skip-consistency
+```
+
+### What it measures
+
+| Metric | Description |
+|--------|-------------|
+| **Hit rate** | % of correct HIGH/MEDIUM/LOW tier predictions vs expected tiers (target: 30-50%) |
+| **Confusion matrix** | Per-class precision, recall, F1 for tier classification |
+| **Validation pass rate** | % of field, computation, and URL checks that pass |
+| **Consistency** | Std dev across repeated runs per scoring axis (threshold: 15) |
+| **Confidence calibration** | Expected Calibration Error (ECE) via Platt scaling (activates after 30+ samples) |
+
+### CLI flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dataset` | `benchmarks/dataset.json` | Path to benchmark dataset |
+| `--output` | `benchmarks/results/` | Results output directory |
+| `--sample-size` | all | Limit to first N test cases |
+| `--skip-url-check` | off | Skip HTTP HEAD reachability for evidence URLs |
+| `--skip-consistency` | off | Skip repeat-run variance checks (saves LLM calls) |
+| `--consistency-runs` | 3 | Number of runs per case for consistency |
+| `--summary-only` | off | Print summary of previous runs only |
+| `--verbose` | off | Debug logging |
+
+Results are persisted to `benchmarks/results/` (gitignored). Exit code 1 if hit rate < 30%.
+
+## Scoring Model
+
+6-axis weighted scoring with configurable weights (must sum to 1.0):
+
+| Axis | Default Weight |
+|------|---------------|
+| thesis_alignment | 0.30 |
+| stage_fit | 0.25 |
+| check_size_fit | 0.15 |
+| scientific_regulatory_fit | 0.15 |
+| recency | 0.10 |
+| geography | 0.05 |
+
+When `scientific_regulatory_fit` is null, its weight redistributes to `thesis_alignment`.
+
+Confidence tiers: **HIGH** (>= 0.8), **MEDIUM** (>= 0.6), **LOW** (< 0.6). Missing evidence URLs apply a 0.25 penalty to confidence.
+
+## Configuration
+
+All config via environment variables. See `.env.example` for the full list.
+
+## Deployment
+
+Deployed on Render. See `render.yaml` for configuration.

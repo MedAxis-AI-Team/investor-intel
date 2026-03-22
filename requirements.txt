@@ -13,3 +13,6 @@ anthropic
 pytest
 pytest-asyncio
 coverage
+
+# Benchmarking
+scikit-learn

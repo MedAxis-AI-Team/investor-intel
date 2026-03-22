@@ -24,6 +24,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Benchmark results (generated, not checked in)
+benchmarks/results/
+
 # Utilities
 /docs/
 /rules/

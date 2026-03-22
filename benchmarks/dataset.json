@@ -1,0 +1,265 @@
+{
+  "version": "1.0",
+  "description": "Benchmark dataset for investor scoring accuracy evaluation",
+  "test_cases": [
+    {
+      "id": "case_001",
+      "name": "Strong fit: healthcare VC vs CAR-T oncology startup",
+      "client": {
+        "name": "NovaBio Therapeutics",
+        "thesis": "Developing novel CAR-T cell therapies for solid tumors with proprietary manufacturing platform",
+        "geography": "US",
+        "funding_target": "$15M Series A"
+      },
+      "investor": {
+        "name": "OrbiMed Advisors",
+        "notes": "Healthcare-focused PE/VC with $23B+ AUM, deep oncology and cell therapy portfolio including Juno Therapeutics, Tmunity"
+      },
+      "expected": {
+        "tier": "HIGH",
+        "ranges": {
+          "thesis_alignment": [70, 95],
+          "stage_fit": [65, 90],
+          "check_size_fit": [70, 95],
+          "recency": [60, 90],
+          "geography": [70, 95],
+          "overall": [65, 90]
+        },
+        "scientific_regulatory_fit_applicable": true
+      }
+    },
+    {
+      "id": "case_002",
+      "name": "Weak fit: generalist VC vs deep biotech",
+      "client": {
+        "name": "QuantumBio Labs",
+        "thesis": "Quantum computing-enabled drug discovery platform targeting rare genetic disorders",
+        "geography": "US",
+        "funding_target": "$50M Series C"
+      },
+      "investor": {
+        "name": "Benchmark Capital",
+        "notes": "Generalist VC historically focused on consumer internet and SaaS, limited life science experience"
+      },
+      "expected": {
+        "tier": "LOW",
+        "ranges": {
+          "thesis_alignment": [10, 45],
+          "stage_fit": [30, 60],
+          "check_size_fit": [50, 80],
+          "recency": [10, 40],
+          "geography": [70, 95],
+          "overall": [20, 50]
+        },
+        "scientific_regulatory_fit_applicable": false
+      }
+    },
+    {
+      "id": "case_003",
+      "name": "Moderate fit: biotech seed fund vs early-stage diagnostics",
+      "client": {
+        "name": "PrecisionDx Inc",
+        "thesis": "AI-powered companion diagnostics for precision oncology patient stratification",
+        "geography": "US",
+        "funding_target": "$5M Seed"
+      },
+      "investor": {
+        "name": "ARCH Venture Partners",
+        "notes": "Early-stage life sciences VC, portfolio includes Illumina, Grail, Neumora Therapeutics"
+      },
+      "expected": {
+        "tier": "HIGH",
+        "ranges": {
+          "thesis_alignment": [65, 90],
+          "stage_fit": [75, 95],
+          "check_size_fit": [60, 85],
+          "recency": [70, 95],
+          "geography": [75, 95],
+          "overall": [65, 90]
+        },
+        "scientific_regulatory_fit_applicable": true
+      }
+    },
+    {
+      "id": "case_004",
+      "name": "Moderate fit: medtech investor vs software-heavy platform",
+      "client": {
+        "name": "SynapseAI Health",
+        "thesis": "Machine learning platform for automated radiology reading and triage",
+        "geography": "UK",
+        "funding_target": "$20M Series B"
+      },
+      "investor": {
+        "name": "Deerfield Management",
+        "notes": "Healthcare investment firm focused on advancing healthcare through information, capital and services. $13B+ AUM"
+      },
+      "expected": {
+        "tier": "MEDIUM",
+        "ranges": {
+          "thesis_alignment": [45, 75],
+          "stage_fit": [55, 80],
+          "check_size_fit": [60, 85],
+          "recency": [50, 75],
+          "geography": [30, 60],
+          "overall": [45, 70]
+        },
+        "scientific_regulatory_fit_applicable": true
+      }
+    },
+    {
+      "id": "case_005",
+      "name": "Strong fit: gene therapy specialist vs gene editing startup",
+      "client": {
+        "name": "EditGenomics",
+        "thesis": "In vivo gene editing therapies for inherited liver diseases using next-gen CRISPR delivery",
+        "geography": "US",
+        "funding_target": "$30M Series B"
+      },
+      "investor": {
+        "name": "Flagship Pioneering",
+        "notes": "Founded Moderna, Sana Biotechnology, Omega Therapeutics. Focuses on platform-based biotech companies"
+      },
+      "expected": {
+        "tier": "HIGH",
+        "ranges": {
+          "thesis_alignment": [70, 95],
+          "stage_fit": [65, 90],
+          "check_size_fit": [70, 95],
+          "recency": [70, 95],
+          "geography": [75, 95],
+          "overall": [70, 90]
+        },
+        "scientific_regulatory_fit_applicable": true
+      }
+    },
+    {
+      "id": "case_006",
+      "name": "Weak fit: fintech investor vs clinical-stage biotech",
+      "client": {
+        "name": "ImmunoPharma Ltd",
+        "thesis": "Bispecific antibody platform for autoimmune diseases entering Phase 2 trials",
+        "geography": "Germany",
+        "funding_target": "$40M Series B"
+      },
+      "investor": {
+        "name": "Ribbit Capital",
+        "notes": "Fintech-focused VC, portfolio includes Robinhood, Coinbase, Credit Karma. No healthcare investments"
+      },
+      "expected": {
+        "tier": "LOW",
+        "ranges": {
+          "thesis_alignment": [5, 25],
+          "stage_fit": [10, 35],
+          "check_size_fit": [40, 70],
+          "recency": [5, 25],
+          "geography": [20, 50],
+          "overall": [10, 35]
+        },
+        "scientific_regulatory_fit_applicable": true
+      }
+    },
+    {
+      "id": "case_007",
+      "name": "Moderate fit: crossover fund vs late-stage biotech",
+      "client": {
+        "name": "NeuroVista Therapeutics",
+        "thesis": "Phase 3 neurodegenerative disease therapy with FDA Breakthrough designation",
+        "geography": "US",
+        "funding_target": "$100M Series D"
+      },
+      "investor": {
+        "name": "RA Capital Management",
+        "notes": "Healthcare-focused crossover fund investing in public and private biotech companies"
+      },
+      "expected": {
+        "tier": "HIGH",
+        "ranges": {
+          "thesis_alignment": [65, 90],
+          "stage_fit": [70, 95],
+          "check_size_fit": [75, 95],
+          "recency": [65, 90],
+          "geography": [75, 95],
+          "overall": [70, 90]
+        },
+        "scientific_regulatory_fit_applicable": true
+      }
+    },
+    {
+      "id": "case_008",
+      "name": "Edge case: no geography provided",
+      "client": {
+        "name": "OncoDiagnostics",
+        "thesis": "Liquid biopsy platform for early cancer detection",
+        "geography": null,
+        "funding_target": "$10M Series A"
+      },
+      "investor": {
+        "name": "Andreessen Horowitz Bio Fund",
+        "notes": "a16z bio + health fund, invested in Freenome, Insitro, BioAge Labs"
+      },
+      "expected": {
+        "tier": "HIGH",
+        "ranges": {
+          "thesis_alignment": [65, 90],
+          "stage_fit": [65, 90],
+          "check_size_fit": [55, 80],
+          "recency": [65, 90],
+          "overall": [60, 85]
+        },
+        "scientific_regulatory_fit_applicable": true
+      }
+    },
+    {
+      "id": "case_009",
+      "name": "Moderate fit: corporate VC vs digital health",
+      "client": {
+        "name": "TeleRehab Health",
+        "thesis": "Remote physical therapy platform with AI-guided exercises and outcome tracking",
+        "geography": "US",
+        "funding_target": "$8M Series A"
+      },
+      "investor": {
+        "name": "GV (Google Ventures)",
+        "notes": "Alphabet's venture arm, invests across sectors including health tech. Portfolio includes Tempus, Oscar Health"
+      },
+      "expected": {
+        "tier": "MEDIUM",
+        "ranges": {
+          "thesis_alignment": [45, 75],
+          "stage_fit": [60, 85],
+          "check_size_fit": [55, 80],
+          "recency": [50, 75],
+          "geography": [70, 90],
+          "overall": [50, 75]
+        },
+        "scientific_regulatory_fit_applicable": false
+      }
+    },
+    {
+      "id": "case_010",
+      "name": "Edge case: minimal investor info",
+      "client": {
+        "name": "MedAxis",
+        "thesis": "AI-powered diagnostic platform for rare diseases",
+        "geography": "US",
+        "funding_target": "$5M Seed"
+      },
+      "investor": {
+        "name": "Unknown Biotech Fund",
+        "notes": null
+      },
+      "expected": {
+        "tier": "LOW",
+        "ranges": {
+          "thesis_alignment": [20, 60],
+          "stage_fit": [20, 60],
+          "check_size_fit": [20, 60],
+          "recency": [10, 50],
+          "geography": [30, 70],
+          "overall": [20, 55]
+        },
+        "scientific_regulatory_fit_applicable": false
+      }
+    }
+  ]
+}
