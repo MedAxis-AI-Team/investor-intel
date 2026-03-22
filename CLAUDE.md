@@ -32,7 +32,7 @@ source venv/bin/activate && coverage run -m pytest && coverage report -m        
 - `app/main.py` — `create_app()` factory. Request-ID middleware, exception handlers, router registration.
 - `app/main_deps.py` — FastAPI DI wiring. Builds services from settings. This is where LlmClient is swapped in tests.
 - `app/api/deps.py` — Rate limiting (in-memory fixed window per IP). No API key auth (N8N handles upstream).
-- `app/api/routers/` — One router per endpoint: `score_investors`, `analyze_signal`, `generate_digest`, `score_grants`, `health`.
+- `app/api/routers/` — One router per endpoint: `score_investors`, `analyze_signal`, `generate_digest`, `score_grants`, `benchmark`, `health`.
 - `app/services/llm_client.py` — `LlmClient` Protocol + frozen dataclasses for LLM return types. All services depend on this abstraction.
 - `app/services/anthropic_client.py` — Concrete `AnthropicLlmClient`. Sends structured prompts, parses raw JSON from Claude responses.
 - `app/services/` — Business logic: `scoring_service` (6-axis weighted scoring + confidence), `signal_service`, `digest_service`, `grant_scoring_service`.
@@ -41,6 +41,8 @@ source venv/bin/activate && coverage run -m pytest && coverage report -m        
 **Scoring model (6-axis):** thesis_alignment 30%, stage_fit 25%, check_size_fit 15%, scientific_regulatory_fit 15%, recency 10%, geography 5%. When scientific_regulatory_fit is null, its weight redistributes to thesis_alignment.
 
 **Testing pattern:** `conftest.py` provides `_FakeLlmClient` that returns deterministic data. Tests override `get_llm_client` dependency — no real Anthropic calls.
+
+**Benchmarking system:** `benchmarks/` module evaluates investor scoring accuracy against known investor-client pairs. Tracks hit rates (HIGH/MEDIUM/LOW tier predictions vs expected), confusion matrix, confidence calibration (Platt scaling), field/URL/computation/consistency validators. Accessible via `POST /benchmark` endpoint or CLI (`python -m benchmarks.cli`). Results persisted to `benchmarks/results/` (gitignored).
 
 **Deployment:** Render (see `render.yaml`). Health check at `/health`. Docs UI at `/` (root).
 
@@ -52,6 +54,7 @@ source venv/bin/activate && coverage run -m pytest && coverage report -m        
 - Frozen dataclasses for LLM return types, Pydantic models for API boundaries
 - `from __future__ import annotations` in every file
 - Always use `venv/` for running commands — never install packages globally
+- **Keep docs in sync:** When modifying files, always update relevant documentation (`CLAUDE.md`, `README.md`, architecture specs in `.claude/docs/`) to reflect the changes. See `.claude/rules/docs-sync.md` for details.
 
 ## Tracking
 
