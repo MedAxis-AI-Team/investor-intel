@@ -1,0 +1,47 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE '(rm -rf|git push --force|git reset --hard|git clean -f)'; then echo 'BLOCK: Destructive command detected. Confirm with user first.' >&2; exit 2; fi"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "for f in $(echo \"$CLAUDE_FILE_PATHS\" | tr ',' '\\n' | grep '\\.py$'); do python -m py_compile \"$f\" 2>&1 || true; done"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE '^git (commit|merge|rebase|cherry-pick)'; then echo \"[git-tracker] $(date '+%Y-%m-%d %H:%M:%S') | $CLAUDE_TOOL_INPUT\" >> .claude/docs/git-changelog.log 2>/dev/null || true; fi",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null && if [ -d .git ]; then echo '--- Session End Git Status ---' >> .claude/docs/git-changelog.log 2>/dev/null; git log --oneline -5 >> .claude/docs/git-changelog.log 2>/dev/null; echo '' >> .claude/docs/git-changelog.log 2>/dev/null; fi || true",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

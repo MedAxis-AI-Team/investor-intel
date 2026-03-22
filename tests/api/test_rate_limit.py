@@ -5,30 +5,63 @@ import pytest
 from app.config import get_settings
 from app.main import create_app
 from app.main_deps import get_llm_client
-from app.services.llm_client import LlmDigestResult, LlmInvestorScore, LlmSignalAnalysis
+from app.services.llm_client import LlmDigestResult, LlmInvestorScore, LlmSignalAnalysis, LlmSignalBriefing
 
 
 class _LocalFakeLlmClient:
     async def score_investor(
-        self, *, client_name: str, client_thesis: str, investor_name: str, investor_notes: str | None
+        self,
+        *,
+        client_name: str,
+        client_thesis: str,
+        client_geography: str | None,
+        client_funding_target: str | None,
+        investor_name: str,
+        investor_notes: str | None,
     ) -> LlmInvestorScore:
         return LlmInvestorScore(
             thesis_alignment=80,
             stage_fit=70,
             check_size_fit=60,
-            strategic_value=50,
+            scientific_regulatory_fit=55,
+            recency=65,
+            geography=50,
             notes=None,
+            outreach_angle="Outreach.",
+            suggested_contact="Partner",
             evidence_urls=["https://example.com/evidence"],
             confidence_score=0.9,
         )
 
-    async def analyze_signal(self, *, signal_type: str, title: str, url: str, raw_text: str | None) -> LlmSignalAnalysis:
+    async def analyze_signal(
+        self,
+        *,
+        signal_type: str,
+        title: str,
+        url: str,
+        published_at: str | None,
+        raw_text: str | None,
+        investor_name: str | None,
+        investor_thesis_keywords: list[str] | None,
+        investor_portfolio_companies: list[str] | None,
+        investor_key_partners: list[str] | None,
+        client_name: str | None,
+        client_thesis: str | None,
+        client_geography: str | None,
+    ) -> LlmSignalAnalysis:
         return LlmSignalAnalysis(
             priority="HIGH",
             rationale="x",
             categories=[],
             evidence_urls=[url],
             confidence_score=0.9,
+            relevance_score=75,
+            briefing=LlmSignalBriefing(
+                headline="h", why_it_matters="w", outreach_angle="o",
+                suggested_contact="s", time_sensitivity="t",
+            ),
+            signal_type="fundraise",
+            expires_relevance="2026-04-22",
         )
 
     async def generate_digest(
@@ -59,11 +92,10 @@ def rate_limited_client(monkeypatch):
 
 def test_rate_limit_enforced(rate_limited_client) -> None:
     payload = {"client": {"name": "Acme", "thesis": "Bio"}, "investors": [{"name": "Firm A"}]}
-    headers = {"X-API-Key": "test-api-key"}
 
-    r1 = rate_limited_client.post("/score-investors", headers=headers, json=payload)
-    r2 = rate_limited_client.post("/score-investors", headers=headers, json=payload)
-    r3 = rate_limited_client.post("/score-investors", headers=headers, json=payload)
+    r1 = rate_limited_client.post("/score-investors", json=payload)
+    r2 = rate_limited_client.post("/score-investors", json=payload)
+    r3 = rate_limited_client.post("/score-investors", json=payload)
 
     assert r1.status_code == 200
     assert r2.status_code == 200

@@ -45,11 +45,7 @@ _VALID_REQUEST = {
 
 
 def test_score_grants_returns_scored_results(client: TestClient) -> None:
-    res = client.post(
-        "/score-grants",
-        headers={"X-API-Key": "test-api-key"},
-        json=_VALID_REQUEST,
-    )
+    res = client.post("/score-grants", json=_VALID_REQUEST)
     assert res.status_code == 200
     body = res.json()
     assert body["success"] is True
@@ -60,11 +56,7 @@ def test_score_grants_returns_scored_results(client: TestClient) -> None:
 
 
 def test_score_grants_result_shape(client: TestClient) -> None:
-    res = client.post(
-        "/score-grants",
-        headers={"X-API-Key": "test-api-key"},
-        json=_VALID_REQUEST,
-    )
+    res = client.post("/score-grants", json=_VALID_REQUEST)
     assert res.status_code == 200
     grant = res.json()["data"]["scored_grants"][0]
     assert "title" in grant
@@ -78,11 +70,7 @@ def test_score_grants_result_shape(client: TestClient) -> None:
 
 
 def test_score_grants_sorted_by_score_descending(client: TestClient) -> None:
-    res = client.post(
-        "/score-grants",
-        headers={"X-API-Key": "test-api-key"},
-        json=_VALID_REQUEST,
-    )
+    res = client.post("/score-grants", json=_VALID_REQUEST)
     assert res.status_code == 200
     grants = res.json()["data"]["scored_grants"]
     scores = [g["overall_score"] for g in grants]
@@ -90,11 +78,7 @@ def test_score_grants_sorted_by_score_descending(client: TestClient) -> None:
 
 
 def test_score_grants_computes_days_until_deadline(client: TestClient) -> None:
-    res = client.post(
-        "/score-grants",
-        headers={"X-API-Key": "test-api-key"},
-        json=_VALID_REQUEST,
-    )
+    res = client.post("/score-grants", json=_VALID_REQUEST)
     assert res.status_code == 200
     grants = res.json()["data"]["scored_grants"]
     # First grant has a deadline; second does not
@@ -104,38 +88,21 @@ def test_score_grants_computes_days_until_deadline(client: TestClient) -> None:
     assert grant_without_deadline["days_until_deadline"] is None
 
 
-def test_score_grants_requires_api_key(client: TestClient) -> None:
-    res = client.post("/score-grants", json=_VALID_REQUEST)
-    assert res.status_code == 401
-
-
 def test_score_grants_rejects_empty_grants_list(client: TestClient) -> None:
     payload = {**_VALID_REQUEST, "grants": []}
-    res = client.post(
-        "/score-grants",
-        headers={"X-API-Key": "test-api-key"},
-        json=payload,
-    )
+    res = client.post("/score-grants", json=payload)
     assert res.status_code == 422
 
 
 def test_score_grants_single_grant(client: TestClient) -> None:
     payload = {**_VALID_REQUEST, "grants": [_VALID_REQUEST["grants"][0]]}
-    res = client.post(
-        "/score-grants",
-        headers={"X-API-Key": "test-api-key"},
-        json=payload,
-    )
+    res = client.post("/score-grants", json=payload)
     assert res.status_code == 200
     assert len(res.json()["data"]["scored_grants"]) == 1
 
 
 def test_score_grants_confidence_tier_valid(client: TestClient) -> None:
-    res = client.post(
-        "/score-grants",
-        headers={"X-API-Key": "test-api-key"},
-        json=_VALID_REQUEST,
-    )
+    res = client.post("/score-grants", json=_VALID_REQUEST)
     assert res.status_code == 200
     for grant in res.json()["data"]["scored_grants"]:
         assert grant["confidence"] in {"high", "medium", "low"}
@@ -143,11 +110,7 @@ def test_score_grants_confidence_tier_valid(client: TestClient) -> None:
 
 def test_score_grants_missing_client_profile_returns_422(client: TestClient) -> None:
     payload = {"grants": _VALID_REQUEST["grants"]}
-    res = client.post(
-        "/score-grants",
-        headers={"X-API-Key": "test-api-key"},
-        json=payload,
-    )
+    res = client.post("/score-grants", json=payload)
     assert res.status_code == 422
 
 
@@ -181,7 +144,6 @@ def test_score_grants_custom_llm_scores(monkeypatch: pytest.MonkeyPatch) -> None
                 confidence="high",
             )
 
-    monkeypatch.setenv("API_KEY", "test-api-key")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
     get_settings.cache_clear()
 
@@ -189,11 +151,7 @@ def test_score_grants_custom_llm_scores(monkeypatch: pytest.MonkeyPatch) -> None
     app.dependency_overrides[get_llm_client] = lambda: _HighScoreLlm()
     tc = TestClient(app)
 
-    res = tc.post(
-        "/score-grants",
-        headers={"X-API-Key": "test-api-key"},
-        json=_VALID_REQUEST,
-    )
+    res = tc.post("/score-grants", json=_VALID_REQUEST)
     assert res.status_code == 200
     for grant in res.json()["data"]["scored_grants"]:
         assert grant["overall_score"] == 99

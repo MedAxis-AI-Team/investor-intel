@@ -10,6 +10,20 @@ from app.models.common import Confidence
 SignalType = Literal["SEC_EDGAR", "GOOGLE_NEWS", "OTHER"]
 
 
+class SignalInvestorContext(BaseModel):
+    name: str = Field(max_length=200)
+    current_score: int | None = Field(default=None, ge=0, le=100)
+    thesis_keywords: list[str] = Field(default_factory=list, max_length=20)
+    portfolio_companies: list[str] = Field(default_factory=list, max_length=30)
+    key_partners: list[str] = Field(default_factory=list, max_length=10)
+
+
+class SignalClientContext(BaseModel):
+    name: str = Field(max_length=200)
+    thesis: str = Field(max_length=1000)
+    geography: str | None = Field(default=None, max_length=200)
+
+
 class AnalyzeSignalRequest(BaseModel):
     schema_version: str = Field(default=DEFAULT_SCHEMA_VERSION, max_length=32)
     signal_type: SignalType
@@ -17,6 +31,17 @@ class AnalyzeSignalRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2000)
     published_at: str | None = Field(default=None, max_length=64)
     raw_text: str | None = Field(default=None, max_length=20000)
+    investor: SignalInvestorContext | None = None
+    client: SignalClientContext | None = None
+
+
+class SignalBriefing(BaseModel):
+    headline: str = Field(max_length=300)
+    why_it_matters: str = Field(max_length=1000)
+    outreach_angle: str = Field(max_length=1000)
+    suggested_contact: str = Field(max_length=200)
+    time_sensitivity: str = Field(max_length=200)
+    source_urls: list[str] = Field(default_factory=list)
 
 
 class SignalAnalysis(BaseModel):
@@ -25,6 +50,10 @@ class SignalAnalysis(BaseModel):
     rationale: str = Field(min_length=1, max_length=4000)
     categories: list[str] = Field(default_factory=list, max_length=20)
     evidence_urls: list[str] = Field(default_factory=list, max_length=20)
+    relevance_score: int = Field(ge=0, le=100)
+    briefing: SignalBriefing
+    signal_type: str = Field(max_length=50)
+    expires_relevance: str = Field(max_length=32)
 
 
 class AnalyzeSignalResponse(BaseModel):

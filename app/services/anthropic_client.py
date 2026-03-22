@@ -5,7 +5,14 @@ import json
 from anthropic import AsyncAnthropic
 
 from app.config import Settings
-from app.services.llm_client import LlmClient, LlmDigestResult, LlmGrantScore, LlmInvestorScore, LlmSignalAnalysis
+from app.services.llm_client import (
+    LlmClient,
+    LlmDigestResult,
+    LlmGrantScore,
+    LlmInvestorScore,
+    LlmSignalAnalysis,
+    LlmSignalBriefing,
+)
 
 
 class AnthropicLlmClient(LlmClient):
@@ -34,6 +41,8 @@ class AnthropicLlmClient(LlmClient):
         *,
         client_name: str,
         client_thesis: str,
+        client_geography: str | None,
+        client_funding_target: str | None,
         investor_name: str,
         investor_notes: str | None,
     ) -> LlmInvestorScore:
@@ -42,15 +51,35 @@ class AnthropicLlmClient(LlmClient):
             if investor_notes
             else ""
         )
+        geography_section = f"\nClient geography: {client_geography}" if client_geography else ""
+        funding_section = f"\nFunding target: {client_funding_target}" if client_funding_target else ""
+
         payload = await self._json_call(
-            system="You are a strict JSON-only scoring engine. Output ONLY valid JSON.",
+            system="You are a strict JSON-only scoring engine for biotech investor matching. Output ONLY valid JSON.",
             user=(
-                "Score an investor against a client thesis.\n"
+                "Score an investor against a client thesis using the 6-axis model.\n"
                 f"Client: {client_name}\n"
-                f"Thesis: {client_thesis}\n"
-                f"Investor: {investor_name}"
+                f"Thesis: {client_thesis}"
+                f"{geography_section}"
+                f"{funding_section}"
+                f"\nInvestor: {investor_name}"
                 f"{notes_section}\n\n"
-                "Return JSON with keys: thesis_alignment, stage_fit, check_size_fit, strategic_value (0-100 ints), "
+                "SCORING AXES (0-100 each):\n"
+                "  thesis_alignment (30%): How well the investor's focus matches the client thesis\n"
+                "  stage_fit (25%): How well the investor's typical stage matches the client\n"
+                "  check_size_fit (15%): How well the investor's typical check size matches funding target\n"
+                "  scientific_regulatory_fit (15%): Match on scientific/regulatory expertise; null if not applicable\n"
+                "  recency (10%): How recently the investor has been active in this space\n"
+                "  geography (5%): Geographic alignment between investor and client\n\n"
+                "Also provide:\n"
+                "  outreach_angle: A specific, actionable outreach strategy (1-2 sentences)\n"
+                "  suggested_contact: The best person or role to contact at the investor firm\n"
+                "  confidence_score: 0.0-1.0 reflecting data quality\n"
+                "  evidence_urls: list of supporting URLs\n"
+                "  notes: additional context or null\n\n"
+                "Return JSON with keys: thesis_alignment, stage_fit, check_size_fit, "
+                "scientific_regulatory_fit (int or null), recency, geography (0-100 ints), "
+                "outreach_angle (string), suggested_contact (string), "
                 "confidence_score (0.0-1.0), evidence_urls (list of urls), notes (string or null)."
             ),
         )
@@ -59,24 +88,90 @@ class AnthropicLlmClient(LlmClient):
             thesis_alignment=int(payload["thesis_alignment"]),
             stage_fit=int(payload["stage_fit"]),
             check_size_fit=int(payload["check_size_fit"]),
-            strategic_value=int(payload["strategic_value"]),
-            confidence_score=float(payload["confidence_score"]),
-            evidence_urls=list(payload.get("evidence_urls") or []),
+            scientific_regulatory_fit=payload.get("scientific_regulatory_fit") and int(payload["scientific_regulatory_fit"]),
+            recency=int(payload["recency"]),
+            geography=int(payload["geography"]),
             notes=payload.get("notes"),
+            outreach_angle=str(payload["outreach_angle"]),
+            suggested_contact=str(payload["suggested_contact"]),
+            evidence_urls=list(payload.get("evidence_urls") or []),
+            confidence_score=float(payload["confidence_score"]),
         )
 
-    async def analyze_signal(self, *, signal_type: str, title: str, url: str, raw_text: str | None) -> LlmSignalAnalysis:
+    async def analyze_signal(
+        self,
+        *,
+        signal_type: str,
+        title: str,
+        url: str,
+        published_at: str | None,
+        raw_text: str | None,
+        investor_name: str | None,
+        investor_thesis_keywords: list[str] | None,
+        investor_portfolio_companies: list[str] | None,
+        investor_key_partners: list[str] | None,
+        client_name: str | None,
+        client_thesis: str | None,
+        client_geography: str | None,
+    ) -> LlmSignalAnalysis:
+        investor_section = ""
+        if investor_name:
+            parts = [f"\nInvestor context: {investor_name}"]
+            if investor_thesis_keywords:
+                parts.append(f"  Thesis keywords: {', '.join(investor_thesis_keywords)}")
+            if investor_portfolio_companies:
+                parts.append(f"  Portfolio: {', '.join(investor_portfolio_companies)}")
+            if investor_key_partners:
+                parts.append(f"  Key partners: {', '.join(investor_key_partners)}")
+            investor_section = "\n".join(parts)
+
+        client_section = ""
+        if client_name:
+            parts = [f"\nClient context: {client_name}"]
+            if client_thesis:
+                parts.append(f"  Thesis: {client_thesis}")
+            if client_geography:
+                parts.append(f"  Geography: {client_geography}")
+            client_section = "\n".join(parts)
+
         payload = await self._json_call(
-            system="You are a strict JSON-only analyst. Output ONLY valid JSON.",
+            system="You are a strict JSON-only signal analyst for biotech investor intelligence. Output ONLY valid JSON.",
             user=(
-                "Analyze an inbound signal for priority routing.\n"
+                "Analyze an inbound signal for priority routing and generate an actionable briefing.\n"
                 f"Signal type: {signal_type}\n"
                 f"Title: {title}\n"
                 f"URL: {url}\n"
-                f"Raw text (optional): {raw_text or ''}\n\n"
-                "Return JSON with keys: priority (HIGH|MEDIUM|LOW), confidence_score (0.0-1.0), "
-                "rationale (string), categories (list of strings), evidence_urls (list of urls)."
+                f"Published: {published_at or 'unknown'}\n"
+                f"Raw text: {raw_text or 'not provided'}"
+                f"{investor_section}"
+                f"{client_section}\n\n"
+                "Return JSON with these keys:\n"
+                "  priority: HIGH|MEDIUM|LOW\n"
+                "  confidence_score: 0.0-1.0\n"
+                "  rationale: string explaining the priority decision\n"
+                "  categories: list of category strings\n"
+                "  evidence_urls: list of supporting URLs\n"
+                "  relevance_score: 0-100 int\n"
+                "  signal_type: classification string (e.g. 'fundraise', 'regulatory', 'partnership')\n"
+                "  expires_relevance: ISO date string when this signal loses relevance\n"
+                "  briefing: object with keys:\n"
+                "    headline: concise summary (max 300 chars)\n"
+                "    why_it_matters: explanation of significance\n"
+                "    outreach_angle: specific actionable outreach strategy\n"
+                "    suggested_contact: best person/role to contact\n"
+                "    time_sensitivity: urgency level description\n"
+                "    source_urls: list of source URLs"
             ),
+        )
+
+        briefing_data = payload.get("briefing") or {}
+        briefing = LlmSignalBriefing(
+            headline=str(briefing_data.get("headline", title)),
+            why_it_matters=str(briefing_data.get("why_it_matters", "")),
+            outreach_angle=str(briefing_data.get("outreach_angle", "")),
+            suggested_contact=str(briefing_data.get("suggested_contact", "")),
+            time_sensitivity=str(briefing_data.get("time_sensitivity", "")),
+            source_urls=list(briefing_data.get("source_urls") or []),
         )
 
         return LlmSignalAnalysis(
@@ -85,6 +180,10 @@ class AnthropicLlmClient(LlmClient):
             rationale=str(payload["rationale"]),
             categories=list(payload.get("categories") or []),
             evidence_urls=list(payload.get("evidence_urls") or []),
+            relevance_score=int(payload.get("relevance_score", 50)),
+            briefing=briefing,
+            signal_type=str(payload.get("signal_type", signal_type)),
+            expires_relevance=str(payload.get("expires_relevance", "")),
         )
 
     async def generate_digest(

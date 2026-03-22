@@ -21,6 +21,7 @@ class ClientProfile(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     thesis: str = Field(min_length=1, max_length=4000)
     geography: str | None = Field(default=None, max_length=200)
+    funding_target: str | None = Field(default=None, max_length=50)
     competitor_watchlist: list[str] = Field(default_factory=list, max_length=10)
 
 
@@ -41,7 +42,10 @@ class InvestorScoreBreakdown(BaseModel):
     thesis_alignment: int = Field(ge=0, le=100)
     stage_fit: int = Field(ge=0, le=100)
     check_size_fit: int = Field(ge=0, le=100)
-    strategic_value: int = Field(ge=0, le=100)
+    strategic_value: int | None = Field(default=None, ge=0, le=100)
+    scientific_regulatory_fit: int | None = Field(default=None, ge=0, le=100)
+    recency: int = Field(ge=0, le=100)
+    geography: int = Field(ge=0, le=100)
 
 
 class InvestorScore(BaseModel):
@@ -51,6 +55,8 @@ class InvestorScore(BaseModel):
     evidence_urls: list[str] = Field(default_factory=list, max_length=20)
     breakdown: InvestorScoreBreakdown
     notes: str | None = Field(default=None, max_length=2000)
+    outreach_angle: str = Field(max_length=2000)
+    suggested_contact: str = Field(max_length=200)
 
 
 class ScoreInvestorsResponse(BaseModel):

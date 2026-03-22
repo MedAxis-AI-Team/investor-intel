@@ -4,7 +4,6 @@ from __future__ import annotations
 def test_generate_digest_returns_structured_payload_only(client) -> None:
     res = client.post(
         "/generate-digest",
-        headers={"X-API-Key": "test-api-key"},
         json={
             "client": {"name": "NovaBio", "geography": "US"},
             "week_start": "2026-03-01",

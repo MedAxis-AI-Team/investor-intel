@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from app.api.deps import rate_limit, require_api_key
+from app.api.deps import rate_limit
 from app.main_deps import get_digest_service
 from app.models.common import ApiResponse
 from app.models.generate_digest import GenerateDigestRequest, GenerateDigestResponse
@@ -14,7 +14,7 @@ router = APIRouter(prefix="", tags=["phase-one"])
 @router.post(
     "/generate-digest",
     response_model=ApiResponse[GenerateDigestResponse],
-    dependencies=[Depends(require_api_key), Depends(rate_limit("generate-digest"))],
+    dependencies=[Depends(rate_limit("generate-digest"))],
 )
 async def generate_digest(
     request: Request,

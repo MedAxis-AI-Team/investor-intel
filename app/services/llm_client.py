@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 
@@ -9,10 +9,24 @@ class LlmInvestorScore:
     thesis_alignment: int
     stage_fit: int
     check_size_fit: int
-    strategic_value: int
+    scientific_regulatory_fit: int | None
+    recency: int
+    geography: int
     notes: str | None
+    outreach_angle: str
+    suggested_contact: str
     evidence_urls: list[str]
     confidence_score: float
+
+
+@dataclass(frozen=True)
+class LlmSignalBriefing:
+    headline: str
+    why_it_matters: str
+    outreach_angle: str
+    suggested_contact: str
+    time_sensitivity: str
+    source_urls: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -22,6 +36,10 @@ class LlmSignalAnalysis:
     categories: list[str]
     evidence_urls: list[str]
     confidence_score: float
+    relevance_score: int
+    briefing: LlmSignalBriefing
+    signal_type: str
+    expires_relevance: str
 
 
 @dataclass(frozen=True)
@@ -50,12 +68,29 @@ class LlmClient(Protocol):
         *,
         client_name: str,
         client_thesis: str,
+        client_geography: str | None,
+        client_funding_target: str | None,
         investor_name: str,
         investor_notes: str | None,
     ) -> LlmInvestorScore:
         raise NotImplementedError
 
-    async def analyze_signal(self, *, signal_type: str, title: str, url: str, raw_text: str | None) -> LlmSignalAnalysis:
+    async def analyze_signal(
+        self,
+        *,
+        signal_type: str,
+        title: str,
+        url: str,
+        published_at: str | None,
+        raw_text: str | None,
+        investor_name: str | None,
+        investor_thesis_keywords: list[str] | None,
+        investor_portfolio_companies: list[str] | None,
+        investor_key_partners: list[str] | None,
+        client_name: str | None,
+        client_thesis: str | None,
+        client_geography: str | None,
+    ) -> LlmSignalAnalysis:
         raise NotImplementedError
 
     async def generate_digest(

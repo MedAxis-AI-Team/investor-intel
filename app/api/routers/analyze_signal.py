@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from app.api.deps import rate_limit, require_api_key
+from app.api.deps import rate_limit
 from app.main_deps import get_signal_service
 from app.models.analyze_signal import AnalyzeSignalRequest, AnalyzeSignalResponse
 from app.models.common import ApiResponse
@@ -14,7 +14,7 @@ router = APIRouter(prefix="", tags=["phase-one"])
 @router.post(
     "/analyze-signal",
     response_model=ApiResponse[AnalyzeSignalResponse],
-    dependencies=[Depends(require_api_key), Depends(rate_limit("analyze-signal"))],
+    dependencies=[Depends(rate_limit("analyze-signal"))],
 )
 async def analyze_signal(
     request: Request,

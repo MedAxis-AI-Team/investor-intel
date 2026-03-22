@@ -20,8 +20,6 @@ services:
         value: production
 
       # Secrets (set these in Render; do not commit real values)
-      - key: API_KEY
-        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
 
@@ -33,6 +31,6 @@ services:
       - key: RATE_LIMIT_MAX_REQUESTS
         value: "60"
       - key: LLM_MODEL
-        value: "claude-3-5-sonnet-latest"
+        value: "claude-sonnet-4-20250514"
       - key: LLM_MAX_TOKENS
-        value: "800"
+        value: "1024"

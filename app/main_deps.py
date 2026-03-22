@@ -28,7 +28,9 @@ def get_score_weights(settings: Settings = Depends(get_settings)) -> ScoreWeight
         thesis_alignment=float(settings.score_weight_thesis_alignment),
         stage_fit=float(settings.score_weight_stage_fit),
         check_size_fit=float(settings.score_weight_check_size_fit),
-        strategic_value=float(settings.score_weight_strategic_value),
+        scientific_regulatory_fit=float(settings.score_weight_scientific_regulatory_fit),
+        recency=float(settings.score_weight_recency),
+        geography=float(settings.score_weight_geography),
     )
 
 def get_scoring_service(

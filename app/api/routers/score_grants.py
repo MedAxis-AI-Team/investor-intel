@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from app.api.deps import rate_limit, require_api_key
+from app.api.deps import rate_limit
 from app.main_deps import get_grant_scoring_service
 from app.models.common import ApiResponse
 from app.models.score_grants import ScoreGrantsRequest, ScoreGrantsResponse
@@ -14,7 +14,7 @@ router = APIRouter(prefix="", tags=["phase-three"])
 @router.post(
     "/score-grants",
     response_model=ApiResponse[ScoreGrantsResponse],
-    dependencies=[Depends(require_api_key), Depends(rate_limit("score-grants"))],
+    dependencies=[Depends(rate_limit("score-grants"))],
 )
 async def score_grants(
     request: Request,

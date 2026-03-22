@@ -17,13 +17,12 @@ class Settings(BaseSettings):
         default="development", alias="ENVIRONMENT"
     )
 
-    api_key: str = Field(alias="API_KEY")
     anthropic_api_key: str = Field(alias="ANTHROPIC_API_KEY")
 
     request_timeout_seconds: float = Field(default=20.0, alias="REQUEST_TIMEOUT_SECONDS")
 
-    llm_model: str = Field(default="claude-3-5-sonnet-latest", alias="LLM_MODEL")
-    llm_max_tokens: int = Field(default=800, alias="LLM_MAX_TOKENS", ge=1, le=8192)
+    llm_model: str = Field(default="claude-sonnet-4-20250514", alias="LLM_MODEL")
+    llm_max_tokens: int = Field(default=1024, alias="LLM_MAX_TOKENS", ge=1, le=8192)
 
     rate_limit_window_seconds: int = Field(default=60, alias="RATE_LIMIT_WINDOW_SECONDS")
     rate_limit_max_requests: int = Field(default=60, alias="RATE_LIMIT_MAX_REQUESTS")
@@ -32,10 +31,12 @@ class Settings(BaseSettings):
     confidence_medium_threshold: float = Field(default=0.6, alias="CONFIDENCE_MEDIUM_THRESHOLD", ge=0.0, le=1.0)
     evidence_missing_penalty: float = Field(default=0.25, alias="EVIDENCE_MISSING_PENALTY", ge=0.0, le=1.0)
 
-    score_weight_thesis_alignment: float = Field(default=0.4, alias="SCORE_WEIGHT_THESIS_ALIGNMENT", ge=0.0, le=1.0)
-    score_weight_stage_fit: float = Field(default=0.2, alias="SCORE_WEIGHT_STAGE_FIT", ge=0.0, le=1.0)
-    score_weight_check_size_fit: float = Field(default=0.2, alias="SCORE_WEIGHT_CHECK_SIZE_FIT", ge=0.0, le=1.0)
-    score_weight_strategic_value: float = Field(default=0.2, alias="SCORE_WEIGHT_STRATEGIC_VALUE", ge=0.0, le=1.0)
+    score_weight_thesis_alignment: float = Field(default=0.30, alias="SCORE_WEIGHT_THESIS_ALIGNMENT", ge=0.0, le=1.0)
+    score_weight_stage_fit: float = Field(default=0.25, alias="SCORE_WEIGHT_STAGE_FIT", ge=0.0, le=1.0)
+    score_weight_check_size_fit: float = Field(default=0.15, alias="SCORE_WEIGHT_CHECK_SIZE_FIT", ge=0.0, le=1.0)
+    score_weight_scientific_regulatory_fit: float = Field(default=0.15, alias="SCORE_WEIGHT_SCIENTIFIC_REGULATORY_FIT", ge=0.0, le=1.0)
+    score_weight_recency: float = Field(default=0.10, alias="SCORE_WEIGHT_RECENCY", ge=0.0, le=1.0)
+    score_weight_geography: float = Field(default=0.05, alias="SCORE_WEIGHT_GEOGRAPHY", ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _validate_thresholds_and_weights(self) -> "Settings":
@@ -46,7 +47,9 @@ class Settings(BaseSettings):
             self.score_weight_thesis_alignment
             + self.score_weight_stage_fit
             + self.score_weight_check_size_fit
-            + self.score_weight_strategic_value
+            + self.score_weight_scientific_regulatory_fit
+            + self.score_weight_recency
+            + self.score_weight_geography
         )
         if abs(total - 1.0) > 1e-6:
             raise ValueError("Score weights must sum to 1.0")

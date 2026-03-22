@@ -27,4 +27,5 @@ Thumbs.db
 # Utilities
 /docs/
 /rules/
-/.claude/
+settings.local.*
+/context/

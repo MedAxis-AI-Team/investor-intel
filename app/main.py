@@ -25,8 +25,6 @@ def create_app() -> FastAPI:
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI):
         settings = get_settings()
-        if not settings.api_key.strip():
-            raise RuntimeError("API_KEY is required")
         if not settings.anthropic_api_key.strip():
             raise RuntimeError("ANTHROPIC_API_KEY is required")
         yield

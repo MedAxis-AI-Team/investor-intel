@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from app.api.deps import rate_limit, require_api_key
+from app.api.deps import rate_limit
 from app.main_deps import get_scoring_service
 from app.models.common import ApiResponse
 from app.models.score_investors import ScoreInvestorsRequest, ScoreInvestorsResponse
@@ -14,7 +14,7 @@ router = APIRouter(prefix="", tags=["phase-one"])
 @router.post(
     "/score-investors",
     response_model=ApiResponse[ScoreInvestorsResponse],
-    dependencies=[Depends(require_api_key), Depends(rate_limit("score-investors"))],
+    dependencies=[Depends(rate_limit("score-investors"))],
 )
 async def score_investors(
     request: Request,
