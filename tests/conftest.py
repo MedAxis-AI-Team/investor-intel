@@ -41,12 +41,17 @@ class _FakeLlmClient:
         investor_name: str,
         investor_notes: str | None,
     ) -> LlmInvestorScore:
+        import re
+        _has_fda = bool(re.search(
+            r"\b(fda|510\(k\)|pma|de\s*novo|clinical\s+trials?|ind|nda|eua|premarket)\b",
+            client_thesis, re.IGNORECASE,
+        ))
         evidence = [f"https://example.com/{investor_name.replace(' ', '-').lower()}"]
         return LlmInvestorScore(
             thesis_alignment=80,
             stage_fit=70,
             check_size_fit=60,
-            scientific_regulatory_fit=55,
+            scientific_regulatory_fit=55 if _has_fda else None,
             recency=65,
             geography=50,
             notes=f"Scored {investor_name} for {client_name}.",

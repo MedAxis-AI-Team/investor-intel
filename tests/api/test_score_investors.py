@@ -89,6 +89,24 @@ def test_score_investors_with_funding_target(client) -> None:
     assert res.json()["success"] is True
 
 
+def test_score_investors_null_sci_reg_for_b2b_client(client) -> None:
+    """B2B thesis with no FDA terms must produce scientific_regulatory_fit=null."""
+    res = client.post(
+        "/score-investors",
+        json={
+            "client": {
+                "name": "Nanofacile",
+                "thesis": "B2B SaaS platform for supply chain optimization in Montreal",
+            },
+            "investors": [{"name": "Firm X"}],
+        },
+    )
+    assert res.status_code == 200
+    result = res.json()["data"]["results"][0]
+    assert result["breakdown"]["scientific_regulatory_fit"] is None
+    assert result["overall_score"] > 0
+
+
 def test_score_investors_null_scientific_regulatory_fit(monkeypatch) -> None:
     class _NullSciRegLlm:
         async def score_investor(

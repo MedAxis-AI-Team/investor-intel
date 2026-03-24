@@ -90,6 +90,17 @@ def _compute_expiry(signal_type: str, published_at: str | None) -> str:
     return (base + timedelta(days=days)).strftime("%Y-%m-%d")
 
 
+_FDA_TERMS = re.compile(
+    r"\b(fda|510\(k\)|pma|de\s*novo|clinical\s+trials?|ind|nda|eua|premarket)\b",
+    re.IGNORECASE,
+)
+
+
+def _needs_sci_reg(client_thesis: str) -> bool:
+    """Return True only if the client thesis references FDA/regulatory terms."""
+    return bool(_FDA_TERMS.search(client_thesis))
+
+
 def _enforce_suggested_contact(value: str, investor_notes: str | None) -> str:
     """Return 'Not identified' if no named individual is determinable."""
     cleaned = value.strip()
@@ -198,7 +209,11 @@ class AnthropicLlmClient(LlmClient):
             thesis_alignment=int(payload["thesis_alignment"]),
             stage_fit=int(payload["stage_fit"]),
             check_size_fit=int(payload["check_size_fit"]),
-            scientific_regulatory_fit=payload.get("scientific_regulatory_fit") and int(payload["scientific_regulatory_fit"]),
+            scientific_regulatory_fit=(
+                (payload.get("scientific_regulatory_fit") and int(payload["scientific_regulatory_fit"]))
+                if _needs_sci_reg(client_thesis)
+                else None
+            ),
             recency=int(payload["recency"]),
             geography=int(payload["geography"]),
             notes=payload.get("notes"),
