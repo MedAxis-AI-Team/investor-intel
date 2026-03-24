@@ -41,6 +41,12 @@ class AnthropicLlmClient(LlmClient):
             text = text.rsplit("```", 1)[0]
             text = text.strip()
 
+        if not text:
+            raise ValueError(
+                f"LLM returned empty text (stop_reason={message.stop_reason}). "
+                "Check API key, model config, and prompt length."
+            )
+
         return json.loads(text)
 
     async def score_investor(
