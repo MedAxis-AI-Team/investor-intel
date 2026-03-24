@@ -60,8 +60,8 @@ class _LocalFakeLlmClient:
                 headline="h", why_it_matters="w", outreach_angle="o",
                 suggested_contact="s", time_sensitivity="t",
             ),
-            signal_type="fundraise",
-            expires_relevance="2026-04-22",
+            signal_type="fund_close",
+            expires_relevance="2026-04-05",
         )
 
     async def generate_digest(
