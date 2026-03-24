@@ -51,7 +51,7 @@ class _FakeLlmClient:
             geography=50,
             notes=f"Scored {investor_name} for {client_name}.",
             outreach_angle=f"Reach out to {investor_name} about thesis alignment.",
-            suggested_contact="Managing Partner",
+            suggested_contact="Not identified",
             evidence_urls=evidence,
             confidence_score=0.9,
         )
@@ -87,8 +87,8 @@ class _FakeLlmClient:
                 time_sensitivity="Act within 1 week",
                 source_urls=[url],
             ),
-            signal_type="fundraise",
-            expires_relevance="2026-04-22",
+            signal_type="fund_close",
+            expires_relevance="2026-04-05",
         )
 
     async def generate_digest(

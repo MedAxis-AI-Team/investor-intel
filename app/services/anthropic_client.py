@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime, timedelta
 
 from anthropic import AsyncAnthropic
 
@@ -13,6 +15,93 @@ from app.services.llm_client import (
     LlmSignalAnalysis,
     LlmSignalBriefing,
 )
+
+
+_GENERIC_ROLES = re.compile(
+    r"^(managing|general|senior|junior|founding)?\s*"
+    r"(partner|director|manager|associate|analyst|principal|vp|"
+    r"vice president|fund manager|investment officer|ceo|cfo|coo|cto|"
+    r"head of|chief|board member)",
+    re.IGNORECASE,
+)
+
+_SIGNAL_TYPE_SPEC = frozenset({
+    "fund_close", "fda_clearance", "funding_announcement", "conference",
+    "thought_leadership", "partnership", "exec_move", "proposed_rule",
+    "draft_guidance", "fda_notice", "portfolio_milestone", "other",
+})
+
+_SIGNAL_TYPE_MAP: dict[str, str] = {
+    "fundraise": "fund_close",
+    "fund_raise": "fund_close",
+    "fundraising": "fund_close",
+    "fund close": "fund_close",
+    "fda": "fda_clearance",
+    "fda_approval": "fda_clearance",
+    "regulatory": "fda_clearance",
+    "funding": "funding_announcement",
+    "investment": "funding_announcement",
+    "leadership": "thought_leadership",
+    "thought leadership": "thought_leadership",
+    "hire": "exec_move",
+    "executive": "exec_move",
+    "exec": "exec_move",
+    "rule": "proposed_rule",
+    "guidance": "draft_guidance",
+    "notice": "fda_notice",
+    "milestone": "portfolio_milestone",
+}
+
+_EXPIRY_DAYS: dict[str, int] = {
+    "fund_close": 14,
+    "fda_clearance": 30,
+    "funding_announcement": 21,
+    "conference": 7,
+    "thought_leadership": 30,
+    "partnership": 21,
+    "exec_move": 30,
+    "proposed_rule": 60,
+    "draft_guidance": 60,
+    "fda_notice": 60,
+    "portfolio_milestone": 14,
+    "other": 14,
+}
+
+
+def _normalize_signal_type(raw: str) -> str:
+    """Map LLM signal_type output to the exact spec enum value."""
+    lower = raw.strip().lower()
+    if lower in _SIGNAL_TYPE_SPEC:
+        return lower
+    return _SIGNAL_TYPE_MAP.get(lower, "other")
+
+
+def _compute_expiry(signal_type: str, published_at: str | None) -> str:
+    """Deterministic expires_relevance from signal type + published date."""
+    base = datetime.now()
+    if published_at:
+        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+            try:
+                base = datetime.strptime(published_at.strip()[:19], fmt)
+                break
+            except ValueError:
+                continue
+    days = _EXPIRY_DAYS.get(signal_type, 14)
+    return (base + timedelta(days=days)).strftime("%Y-%m-%d")
+
+
+def _enforce_suggested_contact(value: str, investor_notes: str | None) -> str:
+    """Return 'Not identified' if no named individual is determinable."""
+    cleaned = value.strip()
+    if not cleaned:
+        return "Not identified"
+    # If it matches a generic role pattern (no proper name), reject it
+    if _GENERIC_ROLES.match(cleaned):
+        # Check if investor_notes contain the exact string returned — if so,
+        # the LLM may have extracted an actual person's title. But the spec
+        # says we need a named individual, not a role.
+        return "Not identified"
+    return cleaned
 
 
 class AnthropicLlmClient(LlmClient):
@@ -114,7 +203,9 @@ class AnthropicLlmClient(LlmClient):
             geography=int(payload["geography"]),
             notes=payload.get("notes"),
             outreach_angle=str(payload["outreach_angle"]),
-            suggested_contact=str(payload["suggested_contact"]),
+            suggested_contact=_enforce_suggested_contact(
+                str(payload["suggested_contact"]), investor_notes,
+            ),
             evidence_urls=list(payload.get("evidence_urls") or []),
             confidence_score=float(payload["confidence_score"]),
         )
@@ -203,6 +294,11 @@ class AnthropicLlmClient(LlmClient):
             source_urls=list(briefing_data.get("source_urls") or []),
         )
 
+        normalized_type = _normalize_signal_type(
+            str(payload.get("signal_type", signal_type))
+        )
+        computed_expiry = _compute_expiry(normalized_type, published_at)
+
         return LlmSignalAnalysis(
             priority=str(payload["priority"]),
             confidence_score=float(payload["confidence_score"]),
@@ -211,8 +307,8 @@ class AnthropicLlmClient(LlmClient):
             evidence_urls=list(payload.get("evidence_urls") or []),
             relevance_score=int(payload.get("relevance_score", 50)),
             briefing=briefing,
-            signal_type=str(payload.get("signal_type", signal_type)),
-            expires_relevance=str(payload.get("expires_relevance", "")),
+            signal_type=normalized_type,
+            expires_relevance=computed_expiry,
         )
 
     async def generate_digest(
