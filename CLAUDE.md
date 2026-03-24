@@ -44,7 +44,11 @@ source venv/bin/activate && coverage run -m pytest && coverage report -m        
 
 **Benchmarking system:** `benchmarks/` module evaluates investor scoring accuracy against known investor-client pairs. Tracks hit rates (HIGH/MEDIUM/LOW tier predictions vs expected), confusion matrix, confidence calibration (Platt scaling), field/URL/computation/consistency validators. Accessible via `POST /benchmark` endpoint or CLI (`python -m benchmarks.cli`). Results persisted to `benchmarks/results/` (gitignored).
 
+**Error handling:** Global catch-all exception handler returns structured `ApiResponse` with `internal_error` code for any unhandled exception. LLM JSON parsing strips markdown code fences before `json.loads`.
+
 **Deployment:** Render (see `render.yaml`). Health check at `/health`. Docs UI at `/` (root).
+
+**Agents** (`.claude/agents/`): `code-reviewer` (post-edit review), `security-reviewer` (pre-commit security), `tdd-guide` (test-driven dev), `planner` (implementation planning), `build-error-resolver` (fix build failures), `issue-triager` (priority triage on changes), `git-workflow` (branch/commit/PR/merge lifecycle).
 
 ## Key Conventions
 

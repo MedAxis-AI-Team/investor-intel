@@ -42,7 +42,6 @@ class InvestorScoreBreakdown(BaseModel):
     thesis_alignment: int = Field(ge=0, le=100)
     stage_fit: int = Field(ge=0, le=100)
     check_size_fit: int = Field(ge=0, le=100)
-    strategic_value: int | None = Field(default=None, ge=0, le=100)
     scientific_regulatory_fit: int | None = Field(default=None, ge=0, le=100)
     recency: int = Field(ge=0, le=100)
     geography: int = Field(ge=0, le=100)
