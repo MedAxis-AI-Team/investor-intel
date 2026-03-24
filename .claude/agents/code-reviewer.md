@@ -14,6 +14,7 @@ You review Python/FastAPI code for the investor-intel API.
 ### CRITICAL (must fix)
 - Security: API key leaks, injection, missing auth on endpoints
 - Data integrity: LLM response parsing without validation, missing error handling on `json.loads`
+- LLM output contract: enum fields without normalization map, exact-string fields without code enforcement, computable fields derived by LLM instead of code (see `.claude/rules/llm-output-contract.md`)
 - Breaking changes: Modified `ApiResponse` contract, changed endpoint signatures
 
 ### HIGH (should fix)
