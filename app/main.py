@@ -75,6 +75,24 @@ def create_app() -> FastAPI:
         )
         return JSONResponse(status_code=422, content=body.model_dump())
 
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        request_id = getattr(request.state, "request_id", None)
+        logger.exception(
+            "unhandled_exception",
+            extra={
+                "path": request.url.path,
+                "method": request.method,
+                "request_id": request_id,
+            },
+        )
+        body = ApiResponse[dict](
+            success=False,
+            request_id=request_id,
+            error=ApiError(code="internal_error", message="internal server error"),
+        )
+        return JSONResponse(status_code=500, content=body.model_dump())
+
     app.include_router(health_router)
     app.include_router(score_investors_router)
     app.include_router(analyze_signal_router)

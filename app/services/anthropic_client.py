@@ -34,6 +34,13 @@ class AnthropicLlmClient(LlmClient):
             if getattr(block, "type", None) == "text":
                 text += block.text
 
+        # Strip markdown code fences if the LLM wrapped its JSON output
+        text = text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1]
+            text = text.rsplit("```", 1)[0]
+            text = text.strip()
+
         return json.loads(text)
 
     async def score_investor(
