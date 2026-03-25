@@ -96,9 +96,16 @@ def test_score_investors_null_sci_reg_for_b2b_client(client) -> None:
         json={
             "client": {
                 "name": "Nanofacile",
-                "thesis": "B2B SaaS platform for supply chain optimization in Montreal",
+                "thesis": (
+                    "B2B platform enabling nanomaterial synthesis for research labs. "
+                    "Stage: Seed. No FDA pathway. Keywords: nanomaterials, lab automation, "
+                    "B2B platform, enabling technology."
+                ),
+                "geography": "Montreal, Canada",
+                "funding_target": "$2M-4M",
+                "competitor_watchlist": [],
             },
-            "investors": [{"name": "Firm X"}],
+            "investors": [{"name": "BDC Capital", "notes": "Canadian VC. Invests in deep tech.", "pipeline_status": "uncontacted"}],
         },
     )
     assert res.status_code == 200

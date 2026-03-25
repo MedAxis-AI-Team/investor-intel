@@ -90,15 +90,26 @@ def _compute_expiry(signal_type: str, published_at: str | None) -> str:
     return (base + timedelta(days=days)).strftime("%Y-%m-%d")
 
 
-_FDA_TERMS = re.compile(
-    r"\b(fda|510\(k\)|pma|de\s*novo|clinical\s+trials?|ind|nda|eua|premarket)\b",
+_POSITIVE_REG_TERMS = re.compile(
+    r"\b(510\(k\)|pma|de\s*novo|clinical\s+trials?|eua|premarket)\b",
     re.IGNORECASE,
 )
 
+_NEGATED_FDA = re.compile(
+    r"\b(no|not|without|non[- ]?)(\s+\w+){0,2}\s*\bfda\b",
+    re.IGNORECASE,
+)
+
+_AFFIRM_FDA = re.compile(r"\bfda\b", re.IGNORECASE)
+
 
 def _needs_sci_reg(client_thesis: str) -> bool:
-    """Return True only if the client thesis references FDA/regulatory terms."""
-    return bool(_FDA_TERMS.search(client_thesis))
+    """Return True only if the client thesis positively references FDA/regulatory terms."""
+    if _POSITIVE_REG_TERMS.search(client_thesis):
+        return True
+    if not _AFFIRM_FDA.search(client_thesis):
+        return False
+    return not _NEGATED_FDA.search(client_thesis)
 
 
 def _enforce_suggested_contact(value: str, investor_notes: str | None) -> str:
