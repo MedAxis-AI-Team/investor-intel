@@ -41,11 +41,8 @@ class _FakeLlmClient:
         investor_name: str,
         investor_notes: str | None,
     ) -> LlmInvestorScore:
-        import re
-        _has_fda = bool(re.search(
-            r"\b(fda|510\(k\)|pma|de\s*novo|clinical\s+trials?|ind|nda|eua|premarket)\b",
-            client_thesis, re.IGNORECASE,
-        ))
+        from app.services.anthropic_client import _needs_sci_reg
+        _has_fda = _needs_sci_reg(client_thesis)
         evidence = [f"https://example.com/{investor_name.replace(' ', '-').lower()}"]
         return LlmInvestorScore(
             thesis_alignment=80,
