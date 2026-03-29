@@ -31,8 +31,8 @@ Docs UI at `/` (root). Health check at `/health`.
 |--------|------|------|-------------|
 | `GET` | `/health` | none | Health check |
 | `POST` | `/score-investors` | rate limited | 6-axis investor scoring with confidence tiers |
-| `POST` | `/analyze-signal` | rate limited | Signal analysis (news, events) |
-| `POST` | `/generate-digest` | rate limited | Investor digest generation |
+| `POST` | `/analyze-signal` | rate limited | Signal analysis (news, events, X/Grok posts). X_GROK source returns `x_signal_type`. |
+| `POST` | `/generate-digest` | rate limited | Investor digest generation with `x_activity_section` for X signals |
 | `POST` | `/score-grants` | rate limited | Grant opportunity scoring |
 | `POST` | `/benchmark` | rate limited | Run accuracy evaluation against known investor-client pairs |
 
@@ -83,7 +83,7 @@ curl -X POST http://localhost:8000/benchmark \
 ```bash
 source venv/bin/activate
 
-# Run all tests (56 total: 25 API + 31 benchmark)
+# Run all tests (60 total: 29 API + 31 benchmark)
 python -m pytest
 
 # Verbose output
@@ -107,8 +107,8 @@ Tests use a `_FakeLlmClient` — no real Anthropic calls are made.
 tests/
   api/
     test_score_investors.py    #  4 tests — batch scoring, confidence, null sci_reg
-    test_analyze_signal.py     #  4 tests — signal analysis variants
-    test_generate_digest.py    #  1 test  — digest structure
+    test_analyze_signal.py     #  7 tests — signal analysis variants + X_GROK
+    test_generate_digest.py    #  2 tests — digest structure + x_activity_section
     test_score_grants.py       #  9 tests — grant scoring, sorting, validation
     test_benchmark.py          #  5 tests — benchmark endpoint, confusion matrix, hit rate
     test_health.py             #  1 test

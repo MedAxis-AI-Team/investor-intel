@@ -14,6 +14,8 @@ from app.services.llm_client import (
     LlmInvestorScore,
     LlmSignalAnalysis,
     LlmSignalBriefing,
+    LlmXActivitySection,
+    LlmXActivitySignal,
 )
 
 
@@ -51,6 +53,59 @@ _SIGNAL_TYPE_MAP: dict[str, str] = {
     "notice": "fda_notice",
     "milestone": "portfolio_milestone",
 }
+
+_X_SIGNAL_TYPE_SPEC = frozenset({
+    "thesis_statement", "conference_signal", "fund_activity",
+    "portfolio_mention", "hiring_signal", "general_activity",
+})
+
+_X_SIGNAL_TYPE_MAP: dict[str, str] = {
+    "thesis": "thesis_statement",
+    "investment_thesis": "thesis_statement",
+    "conference": "conference_signal",
+    "event": "conference_signal",
+    "fund": "fund_activity",
+    "funding": "fund_activity",
+    "investment": "fund_activity",
+    "portfolio": "portfolio_mention",
+    "company_mention": "portfolio_mention",
+    "hiring": "hiring_signal",
+    "hire": "hiring_signal",
+    "recruitment": "hiring_signal",
+    "general": "general_activity",
+    "activity": "general_activity",
+}
+
+_WINDOW_SPEC = frozenset({"immediate", "this_week", "monitor"})
+
+_PRIORITY_SPEC = frozenset({"high", "medium", "low"})
+
+
+def _normalize_x_signal_type(raw: str | None) -> str | None:
+    """Map LLM x_signal_type output to the exact spec enum value."""
+    if raw is None:
+        return None
+    lower = raw.strip().lower()
+    if lower in _X_SIGNAL_TYPE_SPEC:
+        return lower
+    return _X_SIGNAL_TYPE_MAP.get(lower, "general_activity")
+
+
+def _normalize_window(raw: str) -> str:
+    """Normalize window value to spec enum."""
+    lower = raw.strip().lower()
+    if lower in _WINDOW_SPEC:
+        return lower
+    return "monitor"
+
+
+def _normalize_priority(raw: str) -> str:
+    """Normalize priority value to spec enum."""
+    lower = raw.strip().lower()
+    if lower in _PRIORITY_SPEC:
+        return lower
+    return "medium"
+
 
 _EXPIRY_DAYS: dict[str, int] = {
     "fund_close": 14,
@@ -110,6 +165,17 @@ def _needs_sci_reg(client_thesis: str) -> bool:
     if not _AFFIRM_FDA.search(client_thesis):
         return False
     return not _NEGATED_FDA.search(client_thesis)
+
+
+_PRIORITY_UPPER_SPEC = frozenset({"HIGH", "MEDIUM", "LOW"})
+
+
+def _normalize_priority_upper(raw: str) -> str:
+    """Normalize priority value to uppercase spec enum for analyze_signal."""
+    upper = raw.strip().upper()
+    if upper in _PRIORITY_UPPER_SPEC:
+        return upper
+    return "MEDIUM"
 
 
 def _enforce_suggested_contact(value: str, investor_notes: str | None) -> str:
@@ -251,6 +317,9 @@ class AnthropicLlmClient(LlmClient):
         client_name: str | None,
         client_thesis: str | None,
         client_geography: str | None,
+        client_modality: str | None,
+        client_keywords: list[str] | None,
+        grok_batch_context: str | None,
     ) -> LlmSignalAnalysis:
         investor_section = ""
         if investor_name:
@@ -272,6 +341,36 @@ class AnthropicLlmClient(LlmClient):
                 parts.append(f"  Geography: {client_geography}")
             client_section = "\n".join(parts)
 
+        x_grok_section = ""
+        x_grok_schema = ""
+        if signal_type == "X_GROK":
+            grok_parts = [
+                "\nX POST ANALYSIS CONTEXT:",
+                "Analyze this X post for investment intent signals.",
+            ]
+            if client_modality:
+                grok_parts.append(f"  Client modality: {client_modality}")
+            if client_keywords:
+                grok_parts.append(f"  Keywords: {', '.join(client_keywords)}")
+            if grok_batch_context:
+                grok_parts.append(
+                    f"  grok_batch_context (other posts from this search run — "
+                    f"use for background context only, not as pre-scored data):\n{grok_batch_context}"
+                )
+            grok_parts.extend([
+                "  Engagement weighting: replies > likes; "
+                "is_original_post: true > false; "
+                "author_type ranking: partner > firm_handle > portfolio_founder > other",
+                "  Content weighting: direct match to client modality or keywords = stronger signal; "
+                "adjacent vertical mention = flag but weight lower; "
+                "conference mention within 7 days: priority = high, include conference name and date in briefing",
+            ])
+            x_grok_section = "\n".join(grok_parts)
+            x_grok_schema = (
+                "\n  x_signal_type: MUST be one of: thesis_statement | conference_signal | "
+                "fund_activity | portfolio_mention | hiring_signal | general_activity"
+            )
+
         payload = await self._json_call(
             system="You are a strict JSON-only signal analyst for biotech investor intelligence. Output ONLY valid JSON.",
             user=(
@@ -282,7 +381,8 @@ class AnthropicLlmClient(LlmClient):
                 f"Published: {published_at or 'unknown'}\n"
                 f"Raw text: {raw_text or 'not provided'}"
                 f"{investor_section}"
-                f"{client_section}\n\n"
+                f"{client_section}"
+                f"{x_grok_section}\n\n"
                 "Return JSON with these keys:\n"
                 "  priority: HIGH|MEDIUM|LOW\n"
                 "  confidence_score: 0.0-1.0\n"
@@ -307,6 +407,7 @@ class AnthropicLlmClient(LlmClient):
                 "    suggested_contact: best person/role to contact\n"
                 "    time_sensitivity: urgency level description\n"
                 "    source_urls: list of source URLs"
+                f"{x_grok_schema}"
             ),
         )
 
@@ -325,8 +426,13 @@ class AnthropicLlmClient(LlmClient):
         )
         computed_expiry = _compute_expiry(normalized_type, published_at)
 
+        x_sig_type: str | None = None
+        if signal_type == "X_GROK":
+            raw_x = payload.get("x_signal_type")
+            x_sig_type = _normalize_x_signal_type(str(raw_x) if raw_x else None)
+
         return LlmSignalAnalysis(
-            priority=str(payload["priority"]),
+            priority=_normalize_priority_upper(str(payload["priority"])),
             confidence_score=float(payload["confidence_score"]),
             rationale=str(payload["rationale"]),
             categories=list(payload.get("categories") or []),
@@ -335,6 +441,7 @@ class AnthropicLlmClient(LlmClient):
             briefing=briefing,
             signal_type=normalized_type,
             expires_relevance=computed_expiry,
+            x_signal_type=x_sig_type,
         )
 
     async def generate_digest(
@@ -346,6 +453,7 @@ class AnthropicLlmClient(LlmClient):
         signals: list[tuple[str, str]],
         investors: list[tuple[str, str | None]],
         market_context: str | None,
+        x_signals: list[dict] | None,
     ) -> LlmDigestResult:
         market_section = (
             f"\nReal-time market context (use for the Market Pulse section):\n{market_context}"
@@ -361,6 +469,39 @@ class AnthropicLlmClient(LlmClient):
                 f"\nInvestor pipeline status (tailor outreach commentary accordingly):\n{investor_lines}"
             )
 
+        x_section_prompt = ""
+        if x_signals:
+            x_lines = []
+            for sig in x_signals[:20]:
+                investor = sig.get("investor_name", "Unknown")
+                firm = sig.get("firm", "Unknown")
+                summary = sig.get("signal_summary", "")
+                x_type = sig.get("x_signal_type", "general_activity")
+                x_lines.append(f"  - {investor} ({firm}): {summary} [type: {x_type}]")
+            x_section_prompt = (
+                "\nX ACTIVITY SIGNALS (from this week):\n"
+                + "\n".join(x_lines)
+                + "\n\nFor the x_activity_section, produce a briefing for each signal with:"
+                " investor_name, firm, signal_summary (1-2 sentences, active voice, name the person"
+                " and content specifically), x_signal_type (thesis_statement|conference_signal|"
+                "fund_activity|portfolio_mention|hiring_signal|general_activity),"
+                " recommended_action, window (immediate|this_week|monitor),"
+                " priority (high|medium|low)."
+                " For conference_signal: always include conference name and date."
+                " Order by window: immediate first."
+                " Also include section_note summarizing the week's X activity."
+            )
+
+        x_schema_instruction = (
+            "\n  x_activity_section: object with keys: section_title (string),"
+            " signals (list of objects with investor_name, firm, signal_summary,"
+            " x_signal_type, recommended_action, window, priority),"
+            " section_note (string or null)."
+            " ALWAYS include x_activity_section even if there are no X signals"
+            " — in that case return signals: [] with section_note:"
+            ' "No X signals recorded this week."'
+        )
+
         payload = await self._json_call(
             system="You are a strict JSON-only digest generator. Output ONLY valid JSON.",
             user=(
@@ -369,8 +510,11 @@ class AnthropicLlmClient(LlmClient):
                 f"Week: {week_start} to {week_end}"
                 f"{market_section}"
                 f"{investor_section}\n"
-                f"Signals: {signals}\n\n"
-                "Return JSON with keys: subject (string), preheader (string), sections (list of objects with title and bullets)."
+                f"Signals: {signals}"
+                f"{x_section_prompt}\n\n"
+                "Return JSON with keys: subject (string), preheader (string),"
+                " sections (list of objects with title and bullets)."
+                f"{x_schema_instruction}"
             ),
         )
 
@@ -378,10 +522,33 @@ class AnthropicLlmClient(LlmClient):
         for section in payload["sections"]:
             sections.append((str(section["title"]), [str(b) for b in (section.get("bullets") or [])]))
 
+        x_section_raw = payload.get("x_activity_section") or {}
+        x_activity_signals = []
+        for sig in x_section_raw.get("signals", []):
+            x_activity_signals.append(LlmXActivitySignal(
+                investor_name=str(sig.get("investor_name", "Unknown")),
+                firm=str(sig.get("firm", "Unknown")),
+                signal_summary=str(sig.get("signal_summary", "")),
+                x_signal_type=_normalize_x_signal_type(sig.get("x_signal_type")) or "general_activity",
+                recommended_action=str(sig.get("recommended_action", "")),
+                window=_normalize_window(str(sig.get("window", "monitor"))),
+                priority=_normalize_priority(str(sig.get("priority", "medium"))),
+            ))
+
+        x_note = x_section_raw.get("section_note")
+        if not x_activity_signals and not x_note:
+            x_note = "No X signals recorded this week."
+
+        x_activity_section = LlmXActivitySection(
+            signals=x_activity_signals,
+            section_note=str(x_note) if x_note else None,
+        )
+
         return LlmDigestResult(
             subject=str(payload["subject"]),
             preheader=str(payload["preheader"]),
             sections=sections,
+            x_activity_section=x_activity_section,
         )
 
     async def score_grant(
