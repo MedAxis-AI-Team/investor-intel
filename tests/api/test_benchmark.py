@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 
 def test_benchmark_returns_results(client) -> None:
     resp = client.post("/benchmark", json={

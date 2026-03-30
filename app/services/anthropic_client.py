@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
-import re
-from datetime import datetime, timedelta
 
 from anthropic import AsyncAnthropic
 
 from app.config import Settings
+from app.services._llm_normalizers import (
+    compute_expiry,
+    enforce_suggested_contact,
+    needs_sci_reg,
+    normalize_priority,
+    normalize_priority_upper,
+    normalize_signal_type,
+    normalize_window,
+    normalize_x_signal_type,
+)
 from app.services.llm_client import (
     LlmClient,
     LlmDigestResult,
@@ -17,179 +25,6 @@ from app.services.llm_client import (
     LlmXActivitySection,
     LlmXActivitySignal,
 )
-
-
-_GENERIC_ROLES = re.compile(
-    r"^(managing|general|senior|junior|founding)?\s*"
-    r"(partner|director|manager|associate|analyst|principal|vp|"
-    r"vice president|fund manager|investment officer|ceo|cfo|coo|cto|"
-    r"head of|chief|board member)",
-    re.IGNORECASE,
-)
-
-_SIGNAL_TYPE_SPEC = frozenset({
-    "fund_close", "fda_clearance", "funding_announcement", "conference",
-    "thought_leadership", "partnership", "exec_move", "proposed_rule",
-    "draft_guidance", "fda_notice", "portfolio_milestone", "other",
-})
-
-_SIGNAL_TYPE_MAP: dict[str, str] = {
-    "fundraise": "fund_close",
-    "fund_raise": "fund_close",
-    "fundraising": "fund_close",
-    "fund close": "fund_close",
-    "fda": "fda_clearance",
-    "fda_approval": "fda_clearance",
-    "regulatory": "fda_clearance",
-    "funding": "funding_announcement",
-    "investment": "funding_announcement",
-    "leadership": "thought_leadership",
-    "thought leadership": "thought_leadership",
-    "hire": "exec_move",
-    "executive": "exec_move",
-    "exec": "exec_move",
-    "rule": "proposed_rule",
-    "guidance": "draft_guidance",
-    "notice": "fda_notice",
-    "milestone": "portfolio_milestone",
-}
-
-_X_SIGNAL_TYPE_SPEC = frozenset({
-    "thesis_statement", "conference_signal", "fund_activity",
-    "portfolio_mention", "hiring_signal", "general_activity",
-})
-
-_X_SIGNAL_TYPE_MAP: dict[str, str] = {
-    "thesis": "thesis_statement",
-    "investment_thesis": "thesis_statement",
-    "conference": "conference_signal",
-    "event": "conference_signal",
-    "fund": "fund_activity",
-    "funding": "fund_activity",
-    "investment": "fund_activity",
-    "portfolio": "portfolio_mention",
-    "company_mention": "portfolio_mention",
-    "hiring": "hiring_signal",
-    "hire": "hiring_signal",
-    "recruitment": "hiring_signal",
-    "general": "general_activity",
-    "activity": "general_activity",
-}
-
-_WINDOW_SPEC = frozenset({"immediate", "this_week", "monitor"})
-
-_PRIORITY_SPEC = frozenset({"high", "medium", "low"})
-
-
-def _normalize_x_signal_type(raw: str | None) -> str | None:
-    """Map LLM x_signal_type output to the exact spec enum value."""
-    if raw is None:
-        return None
-    lower = raw.strip().lower()
-    if lower in _X_SIGNAL_TYPE_SPEC:
-        return lower
-    return _X_SIGNAL_TYPE_MAP.get(lower, "general_activity")
-
-
-def _normalize_window(raw: str) -> str:
-    """Normalize window value to spec enum."""
-    lower = raw.strip().lower()
-    if lower in _WINDOW_SPEC:
-        return lower
-    return "monitor"
-
-
-def _normalize_priority(raw: str) -> str:
-    """Normalize priority value to spec enum."""
-    lower = raw.strip().lower()
-    if lower in _PRIORITY_SPEC:
-        return lower
-    return "medium"
-
-
-_EXPIRY_DAYS: dict[str, int] = {
-    "fund_close": 14,
-    "fda_clearance": 30,
-    "funding_announcement": 21,
-    "conference": 7,
-    "thought_leadership": 30,
-    "partnership": 21,
-    "exec_move": 30,
-    "proposed_rule": 60,
-    "draft_guidance": 60,
-    "fda_notice": 60,
-    "portfolio_milestone": 14,
-    "other": 14,
-}
-
-
-def _normalize_signal_type(raw: str) -> str:
-    """Map LLM signal_type output to the exact spec enum value."""
-    lower = raw.strip().lower()
-    if lower in _SIGNAL_TYPE_SPEC:
-        return lower
-    return _SIGNAL_TYPE_MAP.get(lower, "other")
-
-
-def _compute_expiry(signal_type: str, published_at: str | None) -> str:
-    """Deterministic expires_relevance from signal type + published date."""
-    base = datetime.now()
-    if published_at:
-        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
-            try:
-                base = datetime.strptime(published_at.strip()[:19], fmt)
-                break
-            except ValueError:
-                continue
-    days = _EXPIRY_DAYS.get(signal_type, 14)
-    return (base + timedelta(days=days)).strftime("%Y-%m-%d")
-
-
-_POSITIVE_REG_TERMS = re.compile(
-    r"\b(510\(k\)|pma|de\s*novo|clinical\s+trials?|eua|premarket)\b",
-    re.IGNORECASE,
-)
-
-_NEGATED_FDA = re.compile(
-    r"\b(no|not|without|non[- ]?)(\s+\w+){0,2}\s*\bfda\b",
-    re.IGNORECASE,
-)
-
-_AFFIRM_FDA = re.compile(r"\bfda\b", re.IGNORECASE)
-
-
-def _needs_sci_reg(client_thesis: str) -> bool:
-    """Return True only if the client thesis positively references FDA/regulatory terms."""
-    if _POSITIVE_REG_TERMS.search(client_thesis):
-        return True
-    if not _AFFIRM_FDA.search(client_thesis):
-        return False
-    return not _NEGATED_FDA.search(client_thesis)
-
-
-_PRIORITY_UPPER_SPEC = frozenset({"HIGH", "MEDIUM", "LOW"})
-
-
-def _normalize_priority_upper(raw: str) -> str:
-    """Normalize priority value to uppercase spec enum for analyze_signal."""
-    upper = raw.strip().upper()
-    if upper in _PRIORITY_UPPER_SPEC:
-        return upper
-    return "MEDIUM"
-
-
-def _enforce_suggested_contact(value: str, investor_notes: str | None) -> str:
-    """Return 'Not identified' if no named individual is determinable."""
-    cleaned = value.strip()
-    if not cleaned:
-        return "Not identified"
-    # If it matches a generic role pattern (no proper name), reject it
-    if _GENERIC_ROLES.match(cleaned):
-        # Check if investor_notes contain the exact string returned — if so,
-        # the LLM may have extracted an actual person's title. But the spec
-        # says we need a named individual, not a role.
-        return "Not identified"
-    return cleaned
 
 
 class AnthropicLlmClient(LlmClient):
@@ -288,14 +123,14 @@ class AnthropicLlmClient(LlmClient):
             check_size_fit=int(payload["check_size_fit"]),
             scientific_regulatory_fit=(
                 (payload.get("scientific_regulatory_fit") and int(payload["scientific_regulatory_fit"]))
-                if _needs_sci_reg(client_thesis)
+                if needs_sci_reg(client_thesis)
                 else None
             ),
             recency=int(payload["recency"]),
             geography=int(payload["geography"]),
             notes=payload.get("notes"),
             outreach_angle=str(payload["outreach_angle"]),
-            suggested_contact=_enforce_suggested_contact(
+            suggested_contact=enforce_suggested_contact(
                 str(payload["suggested_contact"]), investor_notes,
             ),
             evidence_urls=list(payload.get("evidence_urls") or []),
@@ -311,6 +146,7 @@ class AnthropicLlmClient(LlmClient):
         published_at: str | None,
         raw_text: str | None,
         investor_name: str | None,
+        investor_firm: str | None,
         investor_thesis_keywords: list[str] | None,
         investor_portfolio_companies: list[str] | None,
         investor_key_partners: list[str] | None,
@@ -319,11 +155,20 @@ class AnthropicLlmClient(LlmClient):
         client_geography: str | None,
         client_modality: str | None,
         client_keywords: list[str] | None,
+        client_stage: str | None,
         grok_batch_context: str | None,
+        x_engagement_replies: int | None,
+        x_engagement_reposts: int | None,
+        x_engagement_likes: int | None,
+        x_engagement_is_original: bool | None,
+        x_engagement_author: str | None,
+        x_engagement_author_type: str | None,
     ) -> LlmSignalAnalysis:
         investor_section = ""
         if investor_name:
             parts = [f"\nInvestor context: {investor_name}"]
+            if investor_firm:
+                parts.append(f"  Firm: {investor_firm}")
             if investor_thesis_keywords:
                 parts.append(f"  Thesis keywords: {', '.join(investor_thesis_keywords)}")
             if investor_portfolio_companies:
@@ -339,6 +184,8 @@ class AnthropicLlmClient(LlmClient):
                 parts.append(f"  Thesis: {client_thesis}")
             if client_geography:
                 parts.append(f"  Geography: {client_geography}")
+            if client_stage:
+                parts.append(f"  Stage: {client_stage}")
             client_section = "\n".join(parts)
 
         x_grok_section = ""
@@ -352,6 +199,16 @@ class AnthropicLlmClient(LlmClient):
                 grok_parts.append(f"  Client modality: {client_modality}")
             if client_keywords:
                 grok_parts.append(f"  Keywords: {', '.join(client_keywords)}")
+            if x_engagement_replies is not None:
+                grok_parts.append(
+                    f"  Engagement data:"
+                    f"\n    Replies: {x_engagement_replies},"
+                    f" Reposts: {x_engagement_reposts or 0},"
+                    f" Likes: {x_engagement_likes or 0}"
+                    f"\n    Is original post: {x_engagement_is_original}"
+                    f"\n    Author: {x_engagement_author or 'unknown'}"
+                    f"\n    Author type: {x_engagement_author_type or 'other'}"
+                )
             if grok_batch_context:
                 grok_parts.append(
                     f"  grok_batch_context (other posts from this search run — "
@@ -421,18 +278,18 @@ class AnthropicLlmClient(LlmClient):
             source_urls=list(briefing_data.get("source_urls") or []),
         )
 
-        normalized_type = _normalize_signal_type(
+        normalized_type = normalize_signal_type(
             str(payload.get("signal_type", signal_type))
         )
-        computed_expiry = _compute_expiry(normalized_type, published_at)
+        computed_expiry = compute_expiry(normalized_type, published_at)
 
         x_sig_type: str | None = None
         if signal_type == "X_GROK":
             raw_x = payload.get("x_signal_type")
-            x_sig_type = _normalize_x_signal_type(str(raw_x) if raw_x else None)
+            x_sig_type = normalize_x_signal_type(str(raw_x) if raw_x else None)
 
         return LlmSignalAnalysis(
-            priority=_normalize_priority_upper(str(payload["priority"])),
+            priority=normalize_priority_upper(str(payload["priority"])),
             confidence_score=float(payload["confidence_score"]),
             rationale=str(payload["rationale"]),
             categories=list(payload.get("categories") or []),
@@ -529,10 +386,10 @@ class AnthropicLlmClient(LlmClient):
                 investor_name=str(sig.get("investor_name", "Unknown")),
                 firm=str(sig.get("firm", "Unknown")),
                 signal_summary=str(sig.get("signal_summary", "")),
-                x_signal_type=_normalize_x_signal_type(sig.get("x_signal_type")) or "general_activity",
+                x_signal_type=normalize_x_signal_type(sig.get("x_signal_type")) or "general_activity",
                 recommended_action=str(sig.get("recommended_action", "")),
-                window=_normalize_window(str(sig.get("window", "monitor"))),
-                priority=_normalize_priority(str(sig.get("priority", "medium"))),
+                window=normalize_window(str(sig.get("window", "monitor"))),
+                priority=normalize_priority(str(sig.get("priority", "medium"))),
             ))
 
         x_note = x_section_raw.get("section_note")

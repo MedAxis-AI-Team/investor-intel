@@ -11,7 +11,10 @@ paths:
 - Always run tests via venv: `source venv/bin/activate && python -m pytest`
 
 ## Conventions
-- One test file per router: `tests/api/test_<endpoint>.py`
+- Per-endpoint tests: `tests/api/test_<endpoint>.py`
+- Cross-endpoint edge cases: `tests/api/test_bulletproof.py` (58 variance + validation tests)
+- Smoke tests with realistic payloads: `tests/api/test_smoke.py`
+- Benchmark infrastructure tests: `tests/benchmark/` (separate from API tests)
 - No auth headers needed — auth is handled upstream by N8N
 - Assert `ApiResponse` structure, not just status codes
 - Test validation (422), rate limiting (429), and happy path (200)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from collections.abc import Callable
 
 from fastapi import Depends, Request, Response, status
@@ -8,10 +7,6 @@ from fastapi import HTTPException
 
 from app.config import Settings, get_settings
 from app.infra.rate_limit import InMemoryFixedWindowRateLimiter, RateLimitConfig
-
-
-def get_request_id() -> str:
-    return uuid.uuid4().hex
 
 
 def _client_ip(request: Request) -> str:

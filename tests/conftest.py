@@ -43,8 +43,8 @@ class _FakeLlmClient:
         investor_name: str,
         investor_notes: str | None,
     ) -> LlmInvestorScore:
-        from app.services.anthropic_client import _needs_sci_reg
-        _has_fda = _needs_sci_reg(client_thesis)
+        from app.services._llm_normalizers import needs_sci_reg
+        _has_fda = needs_sci_reg(client_thesis)
         evidence = [f"https://example.com/{investor_name.replace(' ', '-').lower()}"]
         return LlmInvestorScore(
             thesis_alignment=80,
@@ -69,6 +69,7 @@ class _FakeLlmClient:
         published_at: str | None,
         raw_text: str | None,
         investor_name: str | None,
+        investor_firm: str | None,
         investor_thesis_keywords: list[str] | None,
         investor_portfolio_companies: list[str] | None,
         investor_key_partners: list[str] | None,
@@ -77,7 +78,14 @@ class _FakeLlmClient:
         client_geography: str | None,
         client_modality: str | None,
         client_keywords: list[str] | None,
+        client_stage: str | None,
         grok_batch_context: str | None,
+        x_engagement_replies: int | None,
+        x_engagement_reposts: int | None,
+        x_engagement_likes: int | None,
+        x_engagement_is_original: bool | None,
+        x_engagement_author: str | None,
+        x_engagement_author_type: str | None,
     ) -> LlmSignalAnalysis:
         x_sig_type: str | None = None
         if signal_type == "X_GROK":
