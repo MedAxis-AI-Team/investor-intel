@@ -43,8 +43,8 @@ class _FakeLlmClient:
         investor_name: str,
         investor_notes: str | None,
     ) -> LlmInvestorScore:
-        from app.services.anthropic_client import _needs_sci_reg
-        _has_fda = _needs_sci_reg(client_thesis)
+        from app.services._llm_normalizers import needs_sci_reg
+        _has_fda = needs_sci_reg(client_thesis)
         evidence = [f"https://example.com/{investor_name.replace(' ', '-').lower()}"]
         return LlmInvestorScore(
             thesis_alignment=80,

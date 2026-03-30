@@ -83,7 +83,7 @@ curl -X POST http://localhost:8000/benchmark \
 ```bash
 source venv/bin/activate
 
-# Run all tests (63 total: 32 API + 31 benchmark)
+# Run all tests (128 total: 97 API + 31 benchmark)
 python -m pytest
 
 # Verbose output
@@ -106,13 +106,15 @@ Tests use a `_FakeLlmClient` — no real Anthropic calls are made.
 ```
 tests/
   api/
-    test_score_investors.py    #  4 tests — batch scoring, confidence, null sci_reg
-    test_analyze_signal.py     # 10 tests — signal analysis variants, X_GROK, engagement data
+    test_score_investors.py    #  5 tests — batch scoring, confidence, null sci_reg
+    test_analyze_signal.py     # 10 tests — signal analysis, X_GROK, engagement data
     test_generate_digest.py    #  2 tests — digest structure + x_activity_section
     test_score_grants.py       #  9 tests — grant scoring, sorting, validation
-    test_benchmark.py          #  5 tests — benchmark endpoint, confusion matrix, hit rate
+    test_benchmark.py          #  5 tests — benchmark endpoint integration
     test_health.py             #  1 test
     test_rate_limit.py         #  1 test
+    test_smoke.py              #  4 tests — realistic payloads, end-to-end shape
+    test_bulletproof.py        # 58 tests — edge cases, validation, all endpoints
   benchmark/
     test_validators.py         # 14 tests — field, computation, URL validators
     test_confusion.py          #  6 tests — confusion matrix builder

@@ -32,7 +32,7 @@ Create detailed implementation plans before any code is written. You specialize 
 - All responses use `ApiResponse[T]` wrapper
 - Config via pydantic-settings (`app/config.py`), env vars only
 - Tests mock `get_llm_client` with `_FakeLlmClient` in conftest.py
-- Endpoints require `X-API-Key` auth + rate limiting
+- No API key auth — N8N handles auth upstream. Endpoints have per-IP rate limiting only.
 
 ## Output Format
 

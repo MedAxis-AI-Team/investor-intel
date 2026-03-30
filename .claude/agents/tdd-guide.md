@@ -14,7 +14,7 @@ You guide test-driven development for the investor-intel FastAPI service.
 ### RED — Write failing tests first
 1. Read `tests/conftest.py` to understand the `_FakeLlmClient` pattern and `client` fixture
 2. Write test in `tests/api/test_<endpoint>.py`
-3. Use `TestClient` with `X-API-Key: test-api-key` header
+3. Use `TestClient` — no auth headers needed (N8N handles auth upstream)
 4. Assert on `ApiResponse` structure: `success`, `data`, `error`, `request_id`
 5. Run: `python -m pytest tests/api/test_<file>.py -x` — confirm it fails
 
@@ -42,7 +42,7 @@ def test_endpoint_requires_auth(client):
 
 # Happy path
 def test_endpoint_success(client):
-    resp = client.post("/endpoint", json={...}, headers={"X-API-Key": "test-api-key"})
+    resp = client.post("/endpoint", json={...})
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
@@ -50,6 +50,6 @@ def test_endpoint_success(client):
 
 # Validation
 def test_endpoint_validation(client):
-    resp = client.post("/endpoint", json={}, headers={"X-API-Key": "test-api-key"})
+    resp = client.post("/endpoint", json={})
     assert resp.status_code == 422
 ```
