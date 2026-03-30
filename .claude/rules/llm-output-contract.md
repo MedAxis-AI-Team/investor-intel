@@ -20,17 +20,20 @@ If a response field must be one of N exact values (e.g. `signal_type`, `confiden
 - Build a lookup table mapping common LLM synonyms to canonical values (e.g. `"fundraise"` → `"fund_close"`)
 - Unknown values fall back to a safe default (e.g. `"other"`)
 - Never rely on the prompt listing the enum — LLMs paraphrase
+- **Implementation:** `app/services/_llm_normalizers.py` — `normalize_signal_type`, `normalize_x_signal_type`, `normalize_window`, `normalize_priority`, `normalize_priority_upper`
 
 ### 3. Exact-string fields → code-level enforcement
 If a response field must contain an exact string under certain conditions (e.g. `suggested_contact = "Not identified"`):
 - Validate the LLM output in code after parsing
 - Use pattern matching (regex, keyword lists) to detect non-compliant values
 - Replace with the required exact string programmatically
+- **Implementation:** `app/services/_llm_normalizers.py` — `enforce_suggested_contact`
 
 ### 4. Computed fields → derive in code, not LLM
 If a field can be derived deterministically (e.g. `expires_relevance = published_at + N days`):
 - Compute it in Python — do not ask the LLM for date math, arithmetic, or lookups
 - The LLM's job is judgment (scoring, analysis, rationale). Deterministic logic is code's job.
+- **Implementation:** `app/services/_llm_normalizers.py` — `compute_expiry`, `needs_sci_reg`
 
 ### 5. Content filtering → post-process in code
 If certain terms must be absent from text fields under conditions (e.g. no FDA language for B2B clients):

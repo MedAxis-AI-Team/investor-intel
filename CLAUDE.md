@@ -67,6 +67,15 @@ source venv/bin/activate && coverage run -m pytest && coverage report -m        
 - Always use `venv/` for running commands — never install packages globally
 - **Keep docs in sync:** When modifying files, always update relevant documentation (`CLAUDE.md`, `README.md`, architecture specs in `.claude/docs/`) to reflect the changes. See `.claude/rules/docs-sync.md` for details.
 
+## Slash Commands
+
+| Command | File | Description |
+|---------|------|-------------|
+| `/git-log` | `.claude/commands/git-log.md` | Generate a git changelog summary for a date range |
+| `/adr` | `.claude/commands/adr.md` | Create a new Architectural Decision Record in `.claude/docs/adr/` |
+| `/decision` | `.claude/commands/decision.md` | Log a session decision in `.claude/docs/decisions/` |
+| `/status` | `.claude/commands/status.md` | Print current branch, open PRs, and recent commit summary |
+
 ## Tracking
 
 - **ADRs:** `.claude/docs/adr/` — Architectural Decision Records

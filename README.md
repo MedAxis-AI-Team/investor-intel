@@ -57,6 +57,73 @@ curl -X POST http://localhost:8000/score-investors \
   }'
 ```
 
+### Example: analyze X/Grok signal with engagement data
+
+```bash
+curl -X POST http://localhost:8000/analyze-signal \
+  -H "Content-Type: application/json" \
+  -d '{
+    "signal_type": "X_GROK",
+    "title": "OrbiMed partner posts about CAR-T investment thesis",
+    "url": "https://x.com/orbimed_partner/status/123456789",
+    "published_at": "2026-03-28",
+    "raw_text": "Excited about the CAR-T space — seeing strong signals in solid tumor applications.",
+    "investor": {
+      "name": "Jonathan Silverstein",
+      "firm": "OrbiMed Advisors",
+      "thesis_keywords": ["CAR-T", "oncology", "cell therapy"],
+      "portfolio_companies": ["Kymera", "Relay Therapeutics"]
+    },
+    "client": {
+      "name": "NovaBio Therapeutics",
+      "thesis": "CAR-T cell therapies for solid tumors",
+      "geography": "US",
+      "stage": "Series A"
+    },
+    "x_engagement_data": {
+      "replies": 12,
+      "reposts": 34,
+      "likes": 210,
+      "is_original_post": true,
+      "author": "jonathan_silverstein",
+      "author_type": "partner"
+    }
+  }'
+```
+
+Response includes `x_signal_type` (e.g. `"thesis_statement"`, `"fund_activity"`) for `X_GROK` signals; `null` for all other sources.
+
+### Example: generate digest with X signals
+
+```bash
+curl -X POST http://localhost:8000/generate-digest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_name": "NovaBio Therapeutics",
+    "week_start": "2026-03-24",
+    "week_end": "2026-03-28",
+    "signals": [
+      { "title": "OrbiMed closes $600M fund", "url": "https://news.example.com/orbimed" }
+    ],
+    "investors": [
+      { "name": "OrbiMed Advisors", "notes": "Lead investor candidate" }
+    ],
+    "x_signals": [
+      {
+        "investor_name": "Jonathan Silverstein",
+        "firm": "OrbiMed Advisors",
+        "signal_summary": "Partner posted about CAR-T thesis alignment",
+        "x_signal_type": "thesis_statement",
+        "recommended_action": "Send warm intro this week",
+        "window": "this_week",
+        "priority": "high"
+      }
+    ]
+  }'
+```
+
+Response always includes `x_activity_section` with sorted signals (immediate → this_week → monitor). Empty when no `x_signals` provided.
+
 ### Example: run benchmark via API
 
 ```bash
@@ -219,6 +286,8 @@ All config via environment variables. See `.env.example` for the full list.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | — | Required. Anthropic API key |
+| `GH_TOKEN` | — | Optional. GitHub token for GitHub data source |
+| `XAI_API_KEY` | — | Optional. xAI API key for X/Grok signal source |
 | `ENVIRONMENT` | `development` | `development` or `production` |
 | `LLM_MODEL` | `claude-sonnet-4-20250514` | Claude model to use |
 | `LLM_MAX_TOKENS` | `1024` | Max tokens per LLM response |
