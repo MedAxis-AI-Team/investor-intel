@@ -46,7 +46,7 @@ source venv/bin/activate && coverage run -m pytest && coverage report -m        
 
 **Error handling:** Global catch-all exception handler returns structured `ApiResponse` with `internal_error` code for any unhandled exception. LLM JSON parsing strips markdown code fences and guards against empty responses before `json.loads`.
 
-**Signal source types:** `SEC_EDGAR`, `GOOGLE_NEWS`, `OTHER`, `X_GROK`. When `signal_type == "X_GROK"`, the signal prompt includes X-specific engagement/content weighting and returns `x_signal_type` (thesis_statement, conference_signal, fund_activity, portfolio_mention, hiring_signal, general_activity). Non-X_GROK sources return `x_signal_type: null`.
+**Signal source types:** `SEC_EDGAR`, `GOOGLE_NEWS`, `OTHER`, `X_GROK`. When `signal_type == "X_GROK"`, the signal prompt includes X-specific engagement/content weighting and returns `x_signal_type` (thesis_statement, conference_signal, fund_activity, portfolio_mention, hiring_signal, general_activity). Non-X_GROK sources return `x_signal_type: null`. Request accepts `x_engagement_data` (replies, reposts, likes, is_original_post, author, author_type) for structured engagement metric injection into the prompt. `SignalInvestorContext` includes `firm`, `SignalClientContext` includes `stage`.
 
 **Digest X activity section:** `/generate-digest` always returns `x_activity_section` with structured signals (investor_name, firm, signal_summary, x_signal_type, recommended_action, window, priority) sorted by window urgency. Empty state: `signals: [], section_note: "No X signals recorded this week."`.
 

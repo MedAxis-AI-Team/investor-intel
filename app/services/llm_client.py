@@ -103,6 +103,7 @@ class LlmClient(Protocol):
         published_at: str | None,
         raw_text: str | None,
         investor_name: str | None,
+        investor_firm: str | None,
         investor_thesis_keywords: list[str] | None,
         investor_portfolio_companies: list[str] | None,
         investor_key_partners: list[str] | None,
@@ -111,7 +112,14 @@ class LlmClient(Protocol):
         client_geography: str | None,
         client_modality: str | None,
         client_keywords: list[str] | None,
+        client_stage: str | None,
         grok_batch_context: str | None,
+        x_engagement_replies: int | None,
+        x_engagement_reposts: int | None,
+        x_engagement_likes: int | None,
+        x_engagement_is_original: bool | None,
+        x_engagement_author: str | None,
+        x_engagement_author_type: str | None,
     ) -> LlmSignalAnalysis:
         raise NotImplementedError
 

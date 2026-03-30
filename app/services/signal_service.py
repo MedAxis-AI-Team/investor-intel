@@ -16,6 +16,7 @@ class SignalService:
         self._confidence_policy = confidence_policy
 
     async def analyze(self, req: AnalyzeSignalRequest) -> AnalyzeSignalResponse:
+        eng = req.x_engagement_data
         llm_result = await self._llm.analyze_signal(
             signal_type=req.signal_type,
             title=req.title,
@@ -23,6 +24,7 @@ class SignalService:
             published_at=req.published_at,
             raw_text=req.raw_text,
             investor_name=req.investor.name if req.investor else None,
+            investor_firm=req.investor.firm if req.investor else None,
             investor_thesis_keywords=req.investor.thesis_keywords if req.investor else None,
             investor_portfolio_companies=req.investor.portfolio_companies if req.investor else None,
             investor_key_partners=req.investor.key_partners if req.investor else None,
@@ -31,7 +33,14 @@ class SignalService:
             client_geography=req.client.geography if req.client else None,
             client_modality=req.client.modality if req.client else None,
             client_keywords=req.client.keywords if req.client else None,
+            client_stage=req.client.stage if req.client else None,
             grok_batch_context=req.grok_batch_context,
+            x_engagement_replies=eng.replies if eng else None,
+            x_engagement_reposts=eng.reposts if eng else None,
+            x_engagement_likes=eng.likes if eng else None,
+            x_engagement_is_original=eng.is_original_post if eng else None,
+            x_engagement_author=eng.author if eng else None,
+            x_engagement_author_type=eng.author_type if eng else None,
         )
 
         confidence_score = penalize_for_missing_evidence(

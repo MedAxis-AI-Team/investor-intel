@@ -311,6 +311,7 @@ class AnthropicLlmClient(LlmClient):
         published_at: str | None,
         raw_text: str | None,
         investor_name: str | None,
+        investor_firm: str | None,
         investor_thesis_keywords: list[str] | None,
         investor_portfolio_companies: list[str] | None,
         investor_key_partners: list[str] | None,
@@ -319,11 +320,20 @@ class AnthropicLlmClient(LlmClient):
         client_geography: str | None,
         client_modality: str | None,
         client_keywords: list[str] | None,
+        client_stage: str | None,
         grok_batch_context: str | None,
+        x_engagement_replies: int | None,
+        x_engagement_reposts: int | None,
+        x_engagement_likes: int | None,
+        x_engagement_is_original: bool | None,
+        x_engagement_author: str | None,
+        x_engagement_author_type: str | None,
     ) -> LlmSignalAnalysis:
         investor_section = ""
         if investor_name:
             parts = [f"\nInvestor context: {investor_name}"]
+            if investor_firm:
+                parts.append(f"  Firm: {investor_firm}")
             if investor_thesis_keywords:
                 parts.append(f"  Thesis keywords: {', '.join(investor_thesis_keywords)}")
             if investor_portfolio_companies:
@@ -339,6 +349,8 @@ class AnthropicLlmClient(LlmClient):
                 parts.append(f"  Thesis: {client_thesis}")
             if client_geography:
                 parts.append(f"  Geography: {client_geography}")
+            if client_stage:
+                parts.append(f"  Stage: {client_stage}")
             client_section = "\n".join(parts)
 
         x_grok_section = ""
@@ -352,6 +364,16 @@ class AnthropicLlmClient(LlmClient):
                 grok_parts.append(f"  Client modality: {client_modality}")
             if client_keywords:
                 grok_parts.append(f"  Keywords: {', '.join(client_keywords)}")
+            if x_engagement_replies is not None:
+                grok_parts.append(
+                    f"  Engagement data:"
+                    f"\n    Replies: {x_engagement_replies},"
+                    f" Reposts: {x_engagement_reposts or 0},"
+                    f" Likes: {x_engagement_likes or 0}"
+                    f"\n    Is original post: {x_engagement_is_original}"
+                    f"\n    Author: {x_engagement_author or 'unknown'}"
+                    f"\n    Author type: {x_engagement_author_type or 'other'}"
+                )
             if grok_batch_context:
                 grok_parts.append(
                     f"  grok_batch_context (other posts from this search run — "
