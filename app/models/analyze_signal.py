@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from app.config import DEFAULT_SCHEMA_VERSION
 from app.models.common import Confidence
 
-SignalType = Literal["SEC_EDGAR", "GOOGLE_NEWS", "OTHER"]
+SignalType = Literal["SEC_EDGAR", "GOOGLE_NEWS", "OTHER", "X_GROK"]
 
 
 class SignalInvestorContext(BaseModel):
@@ -22,6 +22,8 @@ class SignalClientContext(BaseModel):
     name: str = Field(max_length=200)
     thesis: str = Field(max_length=1000)
     geography: str | None = Field(default=None, max_length=200)
+    modality: str | None = Field(default=None, max_length=200)
+    keywords: list[str] = Field(default_factory=list, max_length=30)
 
 
 class AnalyzeSignalRequest(BaseModel):
@@ -33,6 +35,7 @@ class AnalyzeSignalRequest(BaseModel):
     raw_text: str | None = Field(default=None, max_length=20000)
     investor: SignalInvestorContext | None = None
     client: SignalClientContext | None = None
+    grok_batch_context: str | None = Field(default=None, max_length=5000)
 
 
 class SignalBriefing(BaseModel):
@@ -54,6 +57,10 @@ class SignalAnalysis(BaseModel):
     briefing: SignalBriefing
     signal_type: str = Field(max_length=50)
     expires_relevance: str = Field(max_length=32)
+    x_signal_type: Literal[
+        "thesis_statement", "conference_signal", "fund_activity",
+        "portfolio_mention", "hiring_signal", "general_activity",
+    ] | None = Field(default=None)
 
 
 class AnalyzeSignalResponse(BaseModel):

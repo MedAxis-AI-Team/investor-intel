@@ -35,7 +35,7 @@ source venv/bin/activate && coverage run -m pytest && coverage report -m        
 - `app/api/routers/` — One router per endpoint: `score_investors`, `analyze_signal`, `generate_digest`, `score_grants`, `benchmark`, `health`.
 - `app/services/llm_client.py` — `LlmClient` Protocol + frozen dataclasses for LLM return types. All services depend on this abstraction.
 - `app/services/anthropic_client.py` — Concrete `AnthropicLlmClient`. Sends structured prompts, parses raw JSON from Claude responses.
-- `app/services/` — Business logic: `scoring_service` (6-axis weighted scoring + confidence), `signal_service`, `digest_service`, `grant_scoring_service`.
+- `app/services/` — Business logic: `scoring_service` (6-axis weighted scoring + confidence), `signal_service` (includes X/Grok signal analysis), `digest_service` (includes X activity section), `grant_scoring_service`.
 - `app/models/` — Pydantic request/response models. `common.py` has `ApiResponse[T]` generic wrapper used by all endpoints.
 
 **Scoring model (6-axis):** thesis_alignment 30%, stage_fit 25%, check_size_fit 15%, scientific_regulatory_fit 15%, recency 10%, geography 5%. When scientific_regulatory_fit is null, its weight redistributes to thesis_alignment.
@@ -46,7 +46,11 @@ source venv/bin/activate && coverage run -m pytest && coverage report -m        
 
 **Error handling:** Global catch-all exception handler returns structured `ApiResponse` with `internal_error` code for any unhandled exception. LLM JSON parsing strips markdown code fences and guards against empty responses before `json.loads`.
 
-**LLM output contract** (`.claude/rules/llm-output-contract.md`): LLM responses are untrusted. Enum fields are normalized via lookup tables, exact-string fields are enforced by regex, computable fields (dates, arithmetic) are derived in Python — never from LLM output. Prompt instructions are defense-in-depth only.
+**Signal source types:** `SEC_EDGAR`, `GOOGLE_NEWS`, `OTHER`, `X_GROK`. When `signal_type == "X_GROK"`, the signal prompt includes X-specific engagement/content weighting and returns `x_signal_type` (thesis_statement, conference_signal, fund_activity, portfolio_mention, hiring_signal, general_activity). Non-X_GROK sources return `x_signal_type: null`.
+
+**Digest X activity section:** `/generate-digest` always returns `x_activity_section` with structured signals (investor_name, firm, signal_summary, x_signal_type, recommended_action, window, priority) sorted by window urgency. Empty state: `signals: [], section_note: "No X signals recorded this week."`.
+
+**LLM output contract** (`.claude/rules/llm-output-contract.md`): LLM responses are untrusted. Enum fields are normalized via lookup tables, exact-string fields are enforced by regex, computable fields (dates, arithmetic) are derived in Python — never from LLM output. Prompt instructions are defense-in-depth only. `x_signal_type`, `window`, and `priority` fields are all code-normalized via lookup tables.
 
 **Deployment:** Render (see `render.yaml`). Health check at `/health`. Docs UI at `/` (root).
 

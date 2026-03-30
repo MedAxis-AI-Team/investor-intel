@@ -14,6 +14,8 @@ from app.services.llm_client import (
     LlmInvestorScore,
     LlmSignalAnalysis,
     LlmSignalBriefing,
+    LlmXActivitySection,
+    LlmXActivitySignal,
 )
 
 
@@ -73,7 +75,14 @@ class _FakeLlmClient:
         client_name: str | None,
         client_thesis: str | None,
         client_geography: str | None,
+        client_modality: str | None,
+        client_keywords: list[str] | None,
+        grok_batch_context: str | None,
     ) -> LlmSignalAnalysis:
+        x_sig_type: str | None = None
+        if signal_type == "X_GROK":
+            x_sig_type = "fund_activity"
+
         return LlmSignalAnalysis(
             priority="HIGH",
             rationale=f"High priority: {title}",
@@ -91,6 +100,7 @@ class _FakeLlmClient:
             ),
             signal_type="fund_close",
             expires_relevance="2026-04-05",
+            x_signal_type=x_sig_type,
         )
 
     async def generate_digest(
@@ -102,7 +112,27 @@ class _FakeLlmClient:
         signals: list[tuple[str, str]],
         investors: list[tuple[str, str | None]],
         market_context: str | None,
+        x_signals: list[dict] | None,
     ) -> LlmDigestResult:
+        x_activity_signals: list[LlmXActivitySignal] = []
+        if x_signals:
+            for sig in x_signals[:3]:
+                x_activity_signals.append(LlmXActivitySignal(
+                    investor_name=sig.get("investor_name", "Unknown Investor"),
+                    firm=sig.get("firm", "Unknown Firm"),
+                    signal_summary=sig.get("signal_summary", "Activity detected"),
+                    x_signal_type="fund_activity",
+                    recommended_action="Monitor for follow-up",
+                    window="this_week",
+                    priority="medium",
+                ))
+
+        x_note: str | None = (
+            "No X signals recorded this week."
+            if not x_activity_signals
+            else f"{len(x_activity_signals)} signal(s) detected."
+        )
+
         return LlmDigestResult(
             subject=f"Weekly Digest — {client_name}",
             preheader=f"Highlights for {week_start}–{week_end}",
@@ -110,6 +140,10 @@ class _FakeLlmClient:
                 ("Market Pulse", ["Markets were active.", "Notable deals occurred."]),
                 ("Signals", [f"{t} ({u})" for (t, u) in signals[:5]]),
             ],
+            x_activity_section=LlmXActivitySection(
+                signals=x_activity_signals,
+                section_note=x_note,
+            ),
         )
 
     async def score_grant(

@@ -40,6 +40,24 @@ class LlmSignalAnalysis:
     briefing: LlmSignalBriefing
     signal_type: str
     expires_relevance: str
+    x_signal_type: str | None = None
+
+
+@dataclass(frozen=True)
+class LlmXActivitySignal:
+    investor_name: str
+    firm: str
+    signal_summary: str
+    x_signal_type: str
+    recommended_action: str
+    window: str
+    priority: str
+
+
+@dataclass(frozen=True)
+class LlmXActivitySection:
+    signals: list[LlmXActivitySignal]
+    section_note: str | None
 
 
 @dataclass(frozen=True)
@@ -47,6 +65,7 @@ class LlmDigestResult:
     subject: str
     preheader: str
     sections: list[tuple[str, list[str]]]
+    x_activity_section: LlmXActivitySection
 
 
 @dataclass(frozen=True)
@@ -90,6 +109,9 @@ class LlmClient(Protocol):
         client_name: str | None,
         client_thesis: str | None,
         client_geography: str | None,
+        client_modality: str | None,
+        client_keywords: list[str] | None,
+        grok_batch_context: str | None,
     ) -> LlmSignalAnalysis:
         raise NotImplementedError
 
@@ -102,6 +124,7 @@ class LlmClient(Protocol):
         signals: list[tuple[str, str]],
         investors: list[tuple[str, str | None]],
         market_context: str | None,
+        x_signals: list[dict] | None,
     ) -> LlmDigestResult:
         raise NotImplementedError
 

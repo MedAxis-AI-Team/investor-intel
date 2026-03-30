@@ -29,6 +29,9 @@ class SignalService:
             client_name=req.client.name if req.client else None,
             client_thesis=req.client.thesis if req.client else None,
             client_geography=req.client.geography if req.client else None,
+            client_modality=req.client.modality if req.client else None,
+            client_keywords=req.client.keywords if req.client else None,
+            grok_batch_context=req.grok_batch_context,
         )
 
         confidence_score = penalize_for_missing_evidence(
@@ -56,6 +59,7 @@ class SignalService:
             briefing=briefing,
             signal_type=llm_result.signal_type,
             expires_relevance=llm_result.expires_relevance,
+            x_signal_type=llm_result.x_signal_type if req.signal_type == "X_GROK" else None,
         )
 
         return AnalyzeSignalResponse(analysis=analysis)
