@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     score_weight_recency: float = Field(default=0.10, alias="SCORE_WEIGHT_RECENCY", ge=0.0, le=1.0)
     score_weight_geography: float = Field(default=0.05, alias="SCORE_WEIGHT_GEOGRAPHY", ge=0.0, le=1.0)
 
+    database_url: str = Field(default="", alias="DATABASE_URL")
+
     @model_validator(mode="after")
     def _validate_thresholds_and_weights(self) -> "Settings":
         if self.confidence_high_threshold < self.confidence_medium_threshold:

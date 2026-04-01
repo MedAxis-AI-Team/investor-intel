@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from fastapi import Depends
+import asyncpg
+from fastapi import Depends, HTTPException, Request
 
 from app.config import Settings, get_settings
 from app.services.anthropic_client import AnthropicLlmClient
 from app.services.confidence import ConfidencePolicy
 from app.services.digest_service import DigestService
 from app.services.grant_scoring_service import GrantScoringService
+from app.services.ingest_service import IngestService
 from app.services.scoring_service import ScoringService, ScoreWeights
 from app.services.signal_service import SignalService
 from app.services.llm_client import LlmClient
@@ -54,3 +56,14 @@ def get_digest_service(llm: LlmClient = Depends(get_llm_client)) -> DigestServic
 
 def get_grant_scoring_service(llm: LlmClient = Depends(get_llm_client)) -> GrantScoringService:
     return GrantScoringService(llm=llm)
+
+
+def get_db_pool(request: Request) -> asyncpg.Pool:
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is None:
+        raise HTTPException(status_code=503, detail="database_unavailable")
+    return pool
+
+
+def get_ingest_service(pool: asyncpg.Pool = Depends(get_db_pool)) -> IngestService:
+    return IngestService(pool=pool)

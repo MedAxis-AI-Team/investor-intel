@@ -32,12 +32,13 @@ source venv/bin/activate && coverage run -m pytest && coverage report -m        
 - `app/main.py` — `create_app()` factory. Request-ID middleware, exception handlers, router registration.
 - `app/main_deps.py` — FastAPI DI wiring. Builds services from settings. This is where LlmClient is swapped in tests.
 - `app/api/deps.py` — Rate limiting (in-memory fixed window per IP). No API key auth (N8N handles upstream).
-- `app/api/routers/` — One router per endpoint: `score_investors`, `analyze_signal`, `generate_digest`, `score_grants`, `benchmark`, `health`.
+- `app/api/routers/` — One router per endpoint: `score_investors`, `analyze_signal`, `generate_digest`, `score_grants`, `benchmark`, `health`, `ingest_investor`.
 - `app/services/llm_client.py` — `LlmClient` Protocol + frozen dataclasses for LLM return types. All services depend on this abstraction.
 - `app/services/anthropic_client.py` — Concrete `AnthropicLlmClient`. Sends structured prompts, parses raw JSON from Claude responses.
 - `app/services/_llm_normalizers.py` — All LLM output normalization: enum lookup tables, expiry computation, FDA detection, contact enforcement. Extracted from `anthropic_client.py` per 600-line file limit.
 - `app/services/` — Business logic: `scoring_service` (6-axis weighted scoring + confidence), `signal_service` (includes X/Grok signal analysis), `digest_service` (includes X activity section), `grant_scoring_service`.
-- `app/models/` — Pydantic request/response models. `common.py` has `ApiResponse[T]` generic wrapper used by all endpoints.
+- `app/services/ingest_service.py` — `IngestService(pool: asyncpg.Pool)`. Transactional 3-table upsert for client investor ingestion. No LLM dependency.
+- `app/models/` — Pydantic request/response models. `common.py` has `ApiResponse[T]` generic wrapper used by all endpoints. `ingest_investor.py` has ingestion models.
 
 **Scoring model (6-axis):** thesis_alignment 30%, stage_fit 25%, check_size_fit 15%, scientific_regulatory_fit 15%, recency 10%, geography 5%. When scientific_regulatory_fit is null, its weight redistributes to thesis_alignment.
 
@@ -52,6 +53,8 @@ source venv/bin/activate && coverage run -m pytest && coverage report -m        
 **Digest X activity section:** `/generate-digest` always returns `x_activity_section` with structured signals (investor_name, firm, signal_summary, x_signal_type, recommended_action, window, priority) sorted by window urgency. Empty state: `signals: [], section_note: "No X signals recorded this week."`.
 
 **LLM output contract** (`.claude/rules/llm-output-contract.md`): LLM responses are untrusted. Enum fields are normalized via lookup tables, exact-string fields are enforced by regex, computable fields (dates, arithmetic) are derived in Python — never from LLM output. Prompt instructions are defense-in-depth only. `x_signal_type`, `window`, and `priority` fields are all code-normalized via lookup tables.
+
+**Ingestion layer:** `POST /ingest/investor-bundle` accepts a client's existing investor tracker entry (investor + contacts + interactions) and writes atomically to `client_investors`, `investor_contacts`, `investor_interactions` via a single Postgres transaction. Cross-references against the core `investors` table by normalized_name then domain — sets `needs_enrichment = true` when no match. `GET /ingest/investor-gap/{client_id}` returns investors in the core table not yet in the client's pipeline. DB layer requires `DATABASE_URL` env var (Supabase/Postgres). Omitting it disables the ingest endpoints with 503. Tables: `client_investors`, `investor_contacts`, `investor_interactions`, `ingestion_errors` (dead-letter, written by n8n directly, not the bundle endpoint). Migration: `migrations/001_client_investor_ingestion.sql`.
 
 **Deployment:** Render (see `render.yaml`). Health check at `/health`. Docs UI at `/` (root).
 
