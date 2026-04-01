@@ -9,6 +9,9 @@ httpx
 # LLM
 anthropic
 
+# Database
+asyncpg
+
 # Testing
 pytest
 pytest-asyncio

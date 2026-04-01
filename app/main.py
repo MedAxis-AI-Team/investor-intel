@@ -4,6 +4,7 @@ import contextlib
 import logging
 import uuid
 
+import asyncpg
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -13,6 +14,7 @@ from app.api.routers.analyze_signal import router as analyze_signal_router
 from app.api.routers.benchmark import router as benchmark_router
 from app.api.routers.generate_digest import router as generate_digest_router
 from app.api.routers.health import router as health_router
+from app.api.routers.ingest_investor import router as ingest_investor_router
 from app.api.routers.score_grants import router as score_grants_router
 from app.api.routers.score_investors import router as score_investors_router
 from app.config import get_settings
@@ -24,11 +26,19 @@ logger = logging.getLogger(__name__)
 
 def create_app() -> FastAPI:
     @contextlib.asynccontextmanager
-    async def lifespan(_: FastAPI):
+    async def lifespan(app: FastAPI):
         settings = get_settings()
         if not settings.anthropic_api_key.strip():
             raise RuntimeError("ANTHROPIC_API_KEY is required")
-        yield
+        if settings.database_url:
+            pool = await asyncpg.create_pool(settings.database_url, min_size=2, max_size=10)
+            app.state.db_pool = pool
+            try:
+                yield
+            finally:
+                await pool.close()
+        else:
+            yield
 
     app = FastAPI(
         title="Investor Intelligence API",
@@ -99,6 +109,7 @@ def create_app() -> FastAPI:
     app.include_router(generate_digest_router)
     app.include_router(score_grants_router)
     app.include_router(benchmark_router)
+    app.include_router(ingest_investor_router)
 
     return app
 

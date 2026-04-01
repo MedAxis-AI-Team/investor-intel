@@ -35,6 +35,8 @@ Docs UI at `/` (root). Health check at `/health`.
 | `POST` | `/generate-digest` | rate limited | Investor digest generation with `x_activity_section` for X signals |
 | `POST` | `/score-grants` | rate limited | Grant opportunity scoring |
 | `POST` | `/benchmark` | rate limited | Run accuracy evaluation against known investor-client pairs |
+| `POST` | `/ingest/investor-bundle` | rate limited | Ingest a client's investor entry (atomic 3-table upsert). Requires `DATABASE_URL`. |
+| `GET` | `/ingest/investor-gap/{client_id}` | rate limited | Top investors in core table not yet in client's pipeline. Requires `DATABASE_URL`. |
 
 No API key required — N8N handles auth upstream.
 
@@ -124,6 +126,63 @@ curl -X POST http://localhost:8000/generate-digest \
 
 Response always includes `x_activity_section` with sorted signals (immediate → this_week → monitor). Empty when no `x_signals` provided.
 
+### Example: ingest investor bundle
+
+```bash
+curl -X POST http://localhost:8000/ingest/investor-bundle \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_id": "novabio-therapeutics",
+    "investor": {
+      "investor_name": "OrbiMed Advisors",
+      "normalized_name": "orbimed advisors",
+      "normalized_domain": "orbimed.com",
+      "investor_type": "vc",
+      "status": "active",
+      "reported_deal_size": "$10M-$30M",
+      "is_strategic": false,
+      "internal_owner": "Jerome"
+    },
+    "contacts": [
+      { "name": "Jonathan Silverstein", "email": "jsilverstein@orbimed.com", "title": "Partner" }
+    ],
+    "interactions": [
+      {
+        "event_date": "2026-03-15",
+        "event_type": "intro_call",
+        "summary": "Initial call — strong thesis alignment on CAR-T",
+        "outcome": "positive",
+        "next_step": "Send deck by March 20",
+        "raw_segment": "Called Jonathan, discussed CAR-T pipeline..."
+      }
+    ]
+  }'
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "client_investor_id": "uuid...",
+    "investor_id": "uuid...",
+    "needs_enrichment": false,
+    "contacts_upserted": 1,
+    "interactions_upserted": 1
+  }
+}
+```
+
+`needs_enrichment: true` when the investor cannot be matched to the core `investors` table (by name or domain). The record is still saved and flagged for the enrichment pipeline.
+
+### Example: get gap investors
+
+```bash
+curl "http://localhost:8000/ingest/investor-gap/novabio-therapeutics?limit=10"
+```
+
+Returns the top investors in the core `investors` table (by `overall_score`) that are not yet in the client's pipeline.
+
 ### Example: run benchmark via API
 
 ```bash
@@ -150,7 +209,7 @@ curl -X POST http://localhost:8000/benchmark \
 ```bash
 source venv/bin/activate
 
-# Run all tests (128 total: 97 API + 31 benchmark)
+# Run all tests (139 total: 108 API + 31 benchmark)
 python -m pytest
 
 # Verbose output
@@ -182,6 +241,7 @@ tests/
     test_rate_limit.py         #  1 test
     test_smoke.py              #  4 tests — realistic payloads, end-to-end shape
     test_bulletproof.py        # 58 tests — edge cases, validation, all endpoints
+    test_ingest_investor.py    # 11 tests — ingestion bundle + gap analysis, fake pool
   benchmark/
     test_validators.py         # 14 tests — field, computation, URL validators
     test_confusion.py          #  6 tests — confusion matrix builder
@@ -286,6 +346,7 @@ All config via environment variables. See `.env.example` for the full list.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | — | Required. Anthropic API key |
+| `DATABASE_URL` | — | Required for `/ingest/*` endpoints. Supabase/Postgres connection string. Leave empty to disable DB layer. |
 | `GH_TOKEN` | — | Optional. GitHub token for GitHub data source |
 | `XAI_API_KEY` | — | Optional. xAI API key for X/Grok signal source |
 | `ENVIRONMENT` | `development` | `development` or `production` |
