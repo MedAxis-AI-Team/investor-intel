@@ -14,9 +14,12 @@ class LlmInvestorScore:
     geography: int
     notes: str | None
     outreach_angle: str
+    avoid: str | None
     suggested_contact: str
     evidence_urls: list[str]
     confidence_score: float
+    narrative_summary: str
+    top_claims: list[str]
 
 
 @dataclass(frozen=True)
@@ -60,12 +63,46 @@ class LlmXActivitySection:
     section_note: str | None
 
 
+# ── Advisor prep dataclasses ────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class LlmAdvisorOutreachAngle:
+    investor_name: str
+    angle: str
+    avoid: str
+    re_engagement_notes: str | None
+
+
+@dataclass(frozen=True)
+class LlmAdvisorCallPlan:
+    opening_framing: str
+    discussion_threads: list[str]
+    desired_outcome: str
+
+
+@dataclass(frozen=True)
+class LlmAdvisorObjection:
+    objection: str
+    response: str
+
+
+@dataclass(frozen=True)
+class LlmAdvisorPrep:
+    key_insights: list[str]
+    outreach_angles: list[LlmAdvisorOutreachAngle]
+    call_plan: LlmAdvisorCallPlan
+    likely_objections: list[LlmAdvisorObjection]
+    risks_sensitivities: list[str]
+    questions_to_ask: list[str]
+
+
 @dataclass(frozen=True)
 class LlmDigestResult:
     subject: str
     preheader: str
     sections: list[tuple[str, list[str]]]
     x_activity_section: LlmXActivitySection
+    advisor_prep: LlmAdvisorPrep
 
 
 @dataclass(frozen=True)
@@ -133,6 +170,9 @@ class LlmClient(Protocol):
         investors: list[tuple[str, str | None]],
         market_context: str | None,
         x_signals: list[dict] | None,
+        therapeutic_area: str | None,
+        stage: str | None,
+        target_raise: str | None,
     ) -> LlmDigestResult:
         raise NotImplementedError
 

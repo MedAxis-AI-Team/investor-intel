@@ -63,3 +63,10 @@ cd28f91 chore: add LLM output contract rule, validator agent, and docs (#5)
 33e2e25 feat: add X/Grok signal source and digest x_activity_section (Addendum D) (#8)
 1e75aa0 fix: handle negated FDA terms in sci_reg detection (T4) (#7)
 
+--- Session End Git Status ---
+fc4a70a Merge branch 'feat/x-grok-engagement-data' into main
+5f2d1ca feat: add refactor on ingest service, supabase migration url, update docs
+59587df feat: Addendum D — x_engagement_data, investor.firm, client.stage + docs sync (#10)
+9e9691d docs: update README, CLAUDE.md, and rules with X engagement data and commands
+127a817 feat: add x_engagement_data, investor.firm, client.stage (#9)
+

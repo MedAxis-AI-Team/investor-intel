@@ -3,20 +3,30 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
+from dataclasses import dataclass, field
 
 import asyncpg
 
 from app.models.ingest_investor import (
+    IngestContactInput,
+    IngestInteractionInput,
     IngestInvestorBundleRequest,
     IngestInvestorBundleResponse,
     IngestInvestorInput,
-    IngestContactInput,
-    IngestInteractionInput,
     InvestorGapResponse,
     InvestorGapResult,
 )
+from app.models.score_investors import InvestorInteractionBrief
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ClientInvestorRecord:
+    normalized_name: str
+    investor_type: str
+    status: str
+    interactions: list[InvestorInteractionBrief] = field(default_factory=list)
 
 
 class IngestService:
@@ -64,6 +74,47 @@ class IngestService:
             )
         results = [InvestorGapResult(**dict(r)) for r in rows]
         return InvestorGapResponse(client_id=client_id, gap_investors=results, total=len(results))
+
+    async def get_client_investors(self, client_id: str) -> list[ClientInvestorRecord]:
+        """Return all investors in a client's tracker with their interaction history."""
+        async with self._pool.acquire() as conn:
+            investor_rows = await conn.fetch(
+                """
+                SELECT id, normalized_name, investor_type, status
+                FROM client_investors
+                WHERE client_id = $1
+                ORDER BY normalized_name
+                """,
+                client_id,
+            )
+            records = []
+            for row in investor_rows:
+                interaction_rows = await conn.fetch(
+                    """
+                    SELECT event_date, event_type, summary, outcome
+                    FROM investor_interactions
+                    WHERE client_investor_id = $1
+                    ORDER BY event_date DESC NULLS LAST
+                    LIMIT 10
+                    """,
+                    row["id"],
+                )
+                interactions = [
+                    InvestorInteractionBrief(
+                        date=ir["event_date"],
+                        event_type=ir["event_type"],
+                        summary=ir["summary"],
+                        outcome=ir["outcome"],
+                    )
+                    for ir in interaction_rows
+                ]
+                records.append(ClientInvestorRecord(
+                    normalized_name=str(row["normalized_name"]),
+                    investor_type=str(row["investor_type"]),
+                    status=str(row["status"]),
+                    interactions=interactions,
+                ))
+        return records
 
     # ── Private helpers ────────────────────────────────────────────────────
 

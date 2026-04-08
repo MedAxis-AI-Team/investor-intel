@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from app.models.generate_digest import (
+    AdvisorCallPlan,
+    AdvisorObjection,
+    AdvisorOutreachAngle,
+    AdvisorPrepPayload,
     DigestPayload,
     DigestSection,
     GenerateDigestRequest,
@@ -8,7 +12,7 @@ from app.models.generate_digest import (
     XActivitySection,
     XActivitySignal,
 )
-from app.services.llm_client import LlmClient
+from app.services.llm_client import LlmAdvisorPrep, LlmClient
 
 
 _WINDOW_ORDER = {"immediate": 0, "this_week": 1, "monitor": 2}
@@ -31,6 +35,9 @@ class DigestService:
             investors=[(inv.name, inv.pipeline_status) for inv in req.investors],
             market_context=req.market_context,
             x_signals=x_signal_dicts,
+            therapeutic_area=req.client.therapeutic_area,
+            stage=req.client.stage,
+            target_raise=req.client.target_raise,
         )
 
         sections = [DigestSection(title=title, bullets=bullets) for (title, bullets) in llm_result.sections]
@@ -54,10 +61,44 @@ class DigestService:
             section_note=llm_result.x_activity_section.section_note,
         )
 
-        payload = DigestPayload(
+        client_digest = DigestPayload(
             subject=llm_result.subject,
             preheader=llm_result.preheader,
             sections=sections,
             x_activity_section=x_activity_section,
         )
-        return GenerateDigestResponse(payload=payload)
+
+        internal_digest = self._build_advisor_payload(llm_result.advisor_prep)
+
+        return GenerateDigestResponse(client_digest=client_digest, internal_digest=internal_digest)
+
+    def _build_advisor_payload(self, prep: LlmAdvisorPrep) -> AdvisorPrepPayload:
+        outreach_angles = [
+            AdvisorOutreachAngle(
+                investor_name=a.investor_name,
+                angle=a.angle,
+                avoid=a.avoid,
+                re_engagement_notes=a.re_engagement_notes,
+            )
+            for a in prep.outreach_angles
+        ]
+
+        call_plan = AdvisorCallPlan(
+            opening_framing=prep.call_plan.opening_framing,
+            discussion_threads=list(prep.call_plan.discussion_threads),
+            desired_outcome=prep.call_plan.desired_outcome,
+        )
+
+        objections = [
+            AdvisorObjection(objection=o.objection, response=o.response)
+            for o in prep.likely_objections
+        ]
+
+        return AdvisorPrepPayload(
+            key_insights=list(prep.key_insights),
+            outreach_angles=outreach_angles,
+            call_plan=call_plan,
+            likely_objections=objections,
+            risks_sensitivities=list(prep.risks_sensitivities),
+            questions_to_ask=list(prep.questions_to_ask),
+        )

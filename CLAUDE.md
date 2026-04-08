@@ -37,10 +37,32 @@ source venv/bin/activate && coverage run -m pytest && coverage report -m        
 - `app/services/anthropic_client.py` — Concrete `AnthropicLlmClient`. Sends structured prompts, parses raw JSON from Claude responses.
 - `app/services/_llm_normalizers.py` — All LLM output normalization: enum lookup tables, expiry computation, FDA detection, contact enforcement. Extracted from `anthropic_client.py` per 600-line file limit.
 - `app/services/` — Business logic: `scoring_service` (6-axis weighted scoring + confidence), `signal_service` (includes X/Grok signal analysis), `digest_service` (includes X activity section), `grant_scoring_service`.
-- `app/services/ingest_service.py` — `IngestService(pool: asyncpg.Pool)`. Transactional 3-table upsert for client investor ingestion. No LLM dependency.
+- `app/services/ingest_service.py` — `IngestService(pool: asyncpg.Pool)`. Transactional 3-table upsert for client investor ingestion. `get_client_investors(client_id)` returns investor + interaction history for `/score-investors` consolidation. No LLM dependency.
 - `app/models/` — Pydantic request/response models. `common.py` has `ApiResponse[T]` generic wrapper used by all endpoints. `ingest_investor.py` has ingestion models.
 
 **Scoring model (6-axis):** thesis_alignment 30%, stage_fit 25%, check_size_fit 15%, scientific_regulatory_fit 15%, recency 10%, geography 5%. When scientific_regulatory_fit is null, its weight redistributes to thesis_alignment.
+
+**Dual DTO pattern (`/score-investors`):** Response includes two parallel lists:
+- `results: list[InvestorScore]` — client-facing: `composite_score`, `investor_tier`, `investor_source`, `dimension_strengths`, `narrative_summary`, `top_claims`, `interactions`, `confidence`, `suggested_contact`, `evidence_urls`.
+- `advisor_data: list[InvestorAdvisorScore]` — internal: `outreach_angle`, `avoid`, `full_axis_breakdown` (raw 0–100 axis scores), `notes`, `re_engagement_notes`.
+
+**investor_tier thresholds (computed in code, not LLM):** composite_score ≥75 → "Tier 1" · ≥60 → "Tier 2" · <60 → "Below Threshold".
+
+**Dimension mapping (internal axis → client label, bucketed in code):**
+| Internal axis | Client label |
+|---|---|
+| thesis_alignment | strategic_fit |
+| stage_fit | stage_relevance |
+| check_size_fit | capital_alignment |
+| scientific_regulatory_fit | scientific_depth (null if not scored) |
+| recency | market_activity |
+| geography | geographic_proximity |
+
+Bucketing: raw ≥70 → "High" · ≥45 → "Medium" · <45 → "Low". Implemented in `_llm_normalizers.bucket_score()`.
+
+**investor_source consolidation:** When `client_id` is provided in the request and `DATABASE_URL` is set, the `/score-investors` router queries `client_investors` to tag each investor as `"client_provided"` (matched) or `"discovery"` (not in tracker). Degrades gracefully to `"discovery"` for all when DB is unavailable.
+
+**Dual response (`/generate-digest`):** Returns `client_digest: DigestPayload` (email sections + x_activity_section) and `internal_digest: AdvisorPrepPayload` (key_insights, outreach_angles, call_plan, likely_objections, risks_sensitivities, questions_to_ask) — both from a single LLM call.
 
 **Testing pattern:** `conftest.py` provides `_FakeLlmClient` that returns deterministic data. Tests override `get_llm_client` dependency — no real Anthropic calls.
 

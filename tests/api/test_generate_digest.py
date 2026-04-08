@@ -14,10 +14,10 @@ def test_generate_digest_returns_structured_payload_only(client) -> None:
     assert res.status_code == 200
     body = res.json()
     assert body["success"] is True
-    assert body["data"]["payload"]["subject"]
-    assert body["data"]["payload"]["preheader"]
-    assert len(body["data"]["payload"]["sections"]) >= 1
-    assert all("title" in s and "bullets" in s for s in body["data"]["payload"]["sections"])
+    assert body["data"]["client_digest"]["subject"]
+    assert body["data"]["client_digest"]["preheader"]
+    assert len(body["data"]["client_digest"]["sections"]) >= 1
+    assert all("title" in s and "bullets" in s for s in body["data"]["client_digest"]["sections"])
 
 
 def test_generate_digest_x_activity_section(client) -> None:
@@ -35,7 +35,7 @@ def test_generate_digest_x_activity_section(client) -> None:
     assert res_empty.status_code == 200
     body_empty = res_empty.json()
     assert body_empty["success"] is True
-    x_section = body_empty["data"]["payload"]["x_activity_section"]
+    x_section = body_empty["data"]["client_digest"]["x_activity_section"]
     assert x_section is not None
     assert x_section["signals"] == []
     assert x_section["section_note"] is not None
@@ -68,7 +68,7 @@ def test_generate_digest_x_activity_section(client) -> None:
     assert res_with.status_code == 200
     body_with = res_with.json()
     assert body_with["success"] is True
-    x_section_with = body_with["data"]["payload"]["x_activity_section"]
+    x_section_with = body_with["data"]["client_digest"]["x_activity_section"]
     assert len(x_section_with["signals"]) == 2
     for sig in x_section_with["signals"]:
         assert sig["investor_name"] is not None

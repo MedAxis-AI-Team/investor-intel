@@ -217,3 +217,34 @@ def enforce_suggested_contact(value: str, investor_notes: str | None) -> str:
     if _GENERIC_ROLES.match(cleaned):
         return "Not identified"
     return cleaned
+
+
+# ---------------------------------------------------------------------------
+# Investor scoring normalization (score_investors output)
+# ---------------------------------------------------------------------------
+
+def bucket_score(raw: int | None, high: int = 70, mid: int = 45) -> str | None:
+    """Convert raw 0–100 axis score to 'High' / 'Medium' / 'Low'.
+
+    Returns None if raw is None (e.g. scientific_regulatory_fit not scored).
+    Thresholds: ≥high → 'High', ≥mid → 'Medium', else → 'Low'.
+    """
+    if raw is None:
+        return None
+    if raw >= high:
+        return "High"
+    if raw >= mid:
+        return "Medium"
+    return "Low"
+
+
+def compute_investor_tier(composite_score: int) -> str:
+    """Derive investor tier from composite score (deterministic, never from LLM).
+
+    Tier 1 ≥75 · Tier 2 ≥60 · Below Threshold <60.
+    """
+    if composite_score >= 75:
+        return "Tier 1"
+    if composite_score >= 60:
+        return "Tier 2"
+    return "Below Threshold"

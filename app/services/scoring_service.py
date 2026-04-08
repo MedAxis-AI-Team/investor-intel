@@ -3,11 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.models.score_investors import (
+    DimensionStrengths,
+    InvestorAdvisorScore,
+    InvestorInteractionBrief,
     InvestorScore,
     InvestorScoreBreakdown,
     ScoreInvestorsRequest,
     ScoreInvestorsResponse,
 )
+from app.services._llm_normalizers import bucket_score, compute_investor_tier
 from app.services.confidence import ConfidencePolicy, penalize_for_missing_evidence, to_confidence
 from app.services.llm_client import LlmClient
 
@@ -52,10 +56,29 @@ class ScoringService:
         self._weights = weights
         self._confidence_policy = confidence_policy
 
-    async def score_investors(self, req: ScoreInvestorsRequest) -> ScoreInvestorsResponse:
-        results: list[InvestorScore] = []
+    async def score_investors(
+        self,
+        req: ScoreInvestorsRequest,
+        *,
+        investor_sources: list[str] | None = None,
+        investor_interactions: list[list[InvestorInteractionBrief]] | None = None,
+    ) -> ScoreInvestorsResponse:
+        """Score investors and return parallel client-facing and advisor-internal DTOs.
 
-        for investor in req.investors:
+        investor_sources: parallel to req.investors — "discovery" or "client_provided".
+                          Defaults to all "discovery" when omitted.
+        investor_interactions: parallel to req.investors — interaction history from client tracker.
+                               Defaults to empty lists when omitted.
+        """
+        results: list[InvestorScore] = []
+        advisor_data: list[InvestorAdvisorScore] = []
+
+        for idx, investor in enumerate(req.investors):
+            source: str = (investor_sources[idx] if investor_sources else None) or "discovery"
+            interactions: list[InvestorInteractionBrief] = (
+                investor_interactions[idx] if investor_interactions else []
+            ) or []
+
             llm_score = await self._llm.score_investor(
                 client_name=req.client.name,
                 client_thesis=req.client.thesis,
@@ -74,7 +97,7 @@ class ScoringService:
                 geography=llm_score.geography,
             )
 
-            overall = _weighted_overall(breakdown=breakdown, weights=self._weights)
+            composite_score = _weighted_overall(breakdown=breakdown, weights=self._weights)
 
             confidence_score = penalize_for_missing_evidence(
                 float(llm_score.confidence_score),
@@ -82,17 +105,38 @@ class ScoringService:
                 policy=self._confidence_policy,
             )
 
-            results.append(
-                InvestorScore(
-                    investor=investor,
-                    overall_score=overall,
-                    confidence=to_confidence(confidence_score, policy=self._confidence_policy),
-                    evidence_urls=list(llm_score.evidence_urls),
-                    breakdown=breakdown,
-                    notes=llm_score.notes,
-                    outreach_angle=llm_score.outreach_angle,
-                    suggested_contact=llm_score.suggested_contact,
-                )
+            sci_depth = bucket_score(breakdown.scientific_regulatory_fit)
+            dimension_strengths = DimensionStrengths(
+                strategic_fit=bucket_score(breakdown.thesis_alignment) or "Low",
+                stage_relevance=bucket_score(breakdown.stage_fit) or "Low",
+                capital_alignment=bucket_score(breakdown.check_size_fit) or "Low",
+                scientific_depth=sci_depth,
+                market_activity=bucket_score(breakdown.recency) or "Low",
+                geographic_proximity=bucket_score(breakdown.geography) or "Low",
             )
 
-        return ScoreInvestorsResponse(results=results)
+            results.append(InvestorScore(
+                investor=investor,
+                composite_score=composite_score,
+                investor_tier=compute_investor_tier(composite_score),
+                investor_source=source,
+                confidence=to_confidence(confidence_score, policy=self._confidence_policy),
+                suggested_contact=llm_score.suggested_contact,
+                evidence_urls=list(llm_score.evidence_urls),
+                dimension_strengths=dimension_strengths,
+                narrative_summary=llm_score.narrative_summary,
+                top_claims=list(llm_score.top_claims),
+                interactions=interactions,
+            ))
+
+            advisor_data.append(InvestorAdvisorScore(
+                investor_name=investor.name,
+                outreach_angle=llm_score.outreach_angle,
+                avoid=llm_score.avoid,
+                re_engagement_notes=None,
+                full_axis_breakdown=breakdown,
+                notes=llm_score.notes,
+                evidence_urls=list(llm_score.evidence_urls),
+            ))
+
+        return ScoreInvestorsResponse(results=results, advisor_data=advisor_data)

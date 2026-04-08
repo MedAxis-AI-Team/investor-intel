@@ -69,7 +69,7 @@ class TestScoreInvestorsVariances:
         body = _assert_success(client.post("/score-investors", json=payload))
         r = body["data"]["results"][0]
         assert r["investor"]["pipeline_status"] == "uncontacted"
-        assert r["outreach_angle"]
+        assert body["data"]["advisor_data"][0]["outreach_angle"]
         assert r["suggested_contact"]
 
     # --- Batch: multiple investors ---
@@ -138,7 +138,7 @@ class TestScoreInvestorsVariances:
             "investors": [{"name": "VC Alpha"}],
         }
         body = _assert_success(client.post("/score-investors", json=payload))
-        breakdown = body["data"]["results"][0]["breakdown"]
+        breakdown = body["data"]["advisor_data"][0]["full_axis_breakdown"]
         expected_axes = {"thesis_alignment", "stage_fit", "check_size_fit",
                          "scientific_regulatory_fit", "recency", "geography"}
         assert set(breakdown.keys()) == expected_axes
@@ -152,7 +152,7 @@ class TestScoreInvestorsVariances:
             "investors": [{"name": "LP1"}],
         }
         body = _assert_success(client.post("/score-investors", json=payload))
-        assert body["data"]["results"][0]["overall_score"] >= 0
+        assert body["data"]["results"][0]["composite_score"] >= 0
 
     # --- Long investor notes ---
 
@@ -452,7 +452,7 @@ class TestGenerateDigestVariances:
             "week_end": "2026-03-23",
         }
         body = _assert_success(client.post("/generate-digest", json=payload))
-        p = body["data"]["payload"]
+        p = body["data"]["client_digest"]
         assert p["subject"]
         assert p["preheader"]
         assert len(p["sections"]) >= 1
@@ -473,7 +473,7 @@ class TestGenerateDigestVariances:
             "market_context": "Biotech index up 3% this week. Notable IPO activity.",
         }
         body = _assert_success(client.post("/generate-digest", json=payload))
-        assert len(body["data"]["payload"]["sections"]) >= 1
+        assert len(body["data"]["client_digest"]["sections"]) >= 1
 
     def test_empty_signals_and_investors(self, client: TestClient) -> None:
         payload = {

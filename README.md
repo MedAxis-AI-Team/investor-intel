@@ -30,9 +30,9 @@ Docs UI at `/` (root). Health check at `/health`.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/health` | none | Health check |
-| `POST` | `/score-investors` | rate limited | 6-axis investor scoring with confidence tiers |
+| `POST` | `/score-investors` | rate limited | 6-axis investor scoring. Returns dual DTO: `results[]` (client-facing: `composite_score`, `investor_tier`, `dimension_strengths`, `top_claims`) + `advisor_data[]` (internal: `outreach_angle`, `full_axis_breakdown`). |
 | `POST` | `/analyze-signal` | rate limited | Signal analysis (news, events, X/Grok posts). X_GROK source returns `x_signal_type`. |
-| `POST` | `/generate-digest` | rate limited | Investor digest generation with `x_activity_section` for X signals |
+| `POST` | `/generate-digest` | rate limited | Investor digest. Returns `client_digest` (email sections + `x_activity_section`) and `internal_digest` (advisor prep: `key_insights`, `call_plan`, `outreach_angles`, `likely_objections`). |
 | `POST` | `/score-grants` | rate limited | Grant opportunity scoring |
 | `POST` | `/benchmark` | rate limited | Run accuracy evaluation against known investor-client pairs |
 | `POST` | `/ingest/investor-bundle` | rate limited | Ingest a client's investor entry (atomic 3-table upsert). Requires `DATABASE_URL`. |
@@ -149,7 +149,7 @@ curl -X POST http://localhost:8000/ingest/investor-bundle \
     "interactions": [
       {
         "event_date": "2026-03-15",
-        "event_type": "intro_call",
+        "event_type": "intro_via_third_party",
         "summary": "Initial call — strong thesis alignment on CAR-T",
         "outcome": "positive",
         "next_step": "Send deck by March 20",
@@ -346,7 +346,9 @@ All config via environment variables. See `.env.example` for the full list.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | — | Required. Anthropic API key |
-| `DATABASE_URL` | — | Required for `/ingest/*` endpoints. Supabase/Postgres connection string. Leave empty to disable DB layer. |
+| `SUPABASE_URL` | — | Supabase project URL (REST/Auth API). e.g. `https://<project-ref>.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | — | Supabase service role JWT for server-side access |
+| `DATABASE_URL` | — | Required for `/ingest/*` endpoints. Direct Postgres connection string for asyncpg. Format: `postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres` |
 | `GH_TOKEN` | — | Optional. GitHub token for GitHub data source |
 | `XAI_API_KEY` | — | Optional. xAI API key for X/Grok signal source |
 | `ENVIRONMENT` | `development` | `development` or `production` |
