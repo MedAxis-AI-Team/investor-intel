@@ -53,12 +53,23 @@ class _LocalFakeLlmClient:
         published_at: str | None,
         raw_text: str | None,
         investor_name: str | None,
+        investor_firm: str | None,
         investor_thesis_keywords: list[str] | None,
         investor_portfolio_companies: list[str] | None,
         investor_key_partners: list[str] | None,
         client_name: str | None,
         client_thesis: str | None,
         client_geography: str | None,
+        client_modality: str | None,
+        client_keywords: list[str] | None,
+        client_stage: str | None,
+        grok_batch_context: str | None,
+        x_engagement_replies: int | None,
+        x_engagement_reposts: int | None,
+        x_engagement_likes: int | None,
+        x_engagement_is_original: bool | None,
+        x_engagement_author: str | None,
+        x_engagement_author_type: str | None,
     ) -> LlmSignalAnalysis:
         return LlmSignalAnalysis(
             priority="HIGH",
@@ -73,6 +84,7 @@ class _LocalFakeLlmClient:
             ),
             signal_type="fund_close",
             expires_relevance="2026-04-05",
+            x_signal_type=None,
         )
 
     async def generate_digest(

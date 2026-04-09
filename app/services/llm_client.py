@@ -4,6 +4,17 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 
+class LlmRetryExhaustedError(Exception):
+    """Raised when _json_call cannot obtain valid JSON after the maximum retries.
+
+    Carries the raw LLM text for held_for_review logging and response attachment.
+    """
+
+    def __init__(self, *, raw: str) -> None:
+        self.raw = raw
+        super().__init__(f"LLM returned invalid JSON after max retries. Preview: {raw[:200]}")
+
+
 @dataclass(frozen=True)
 class LlmInvestorScore:
     thesis_alignment: int

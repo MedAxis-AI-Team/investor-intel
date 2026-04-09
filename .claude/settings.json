@@ -1,4 +1,11 @@
 {
+  "env": {
+    "MAX_THINKING_TOKENS": "10000",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-haiku-4-5-20251001",
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8192",
+    "CLAUDE_SMALL_FAST_MODEL": "claude-haiku-4-5-20251001"
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -6,7 +13,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE '(rm -rf|git push --force|git reset --hard|git clean -f)'; then echo 'BLOCK: Destructive command detected. Confirm with user first.' >&2; exit 2; fi"
+            "command": ".claude/hooks/pre-bash-safety.sh"
           }
         ]
       }
@@ -17,7 +24,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "for f in $(echo \"$CLAUDE_FILE_PATHS\" | tr ',' '\\n' | grep '\\.py$'); do python -m py_compile \"$f\" 2>&1 || true; done"
+            "command": ".claude/hooks/post-edit-pycompile.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/post-edit-loc-check.sh"
           }
         ]
       },
@@ -26,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE '^git (commit|merge|rebase|cherry-pick)'; then echo \"[git-tracker] $(date '+%Y-%m-%d %H:%M:%S') | $CLAUDE_TOOL_INPUT\" >> .claude/docs/git-changelog.log 2>/dev/null || true; fi",
+            "command": ".claude/hooks/post-bash-git-tracker.sh",
             "timeout": 3000
           }
         ]
@@ -37,7 +48,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null && if [ -d .git ]; then echo '--- Session End Git Status ---' >> .claude/docs/git-changelog.log 2>/dev/null; git log --oneline -5 >> .claude/docs/git-changelog.log 2>/dev/null; echo '' >> .claude/docs/git-changelog.log 2>/dev/null; fi || true",
+            "command": ".claude/hooks/stop-git-status.sh",
             "timeout": 5000
           }
         ]

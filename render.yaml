@@ -12,6 +12,7 @@ services:
       --port $PORT
       --proxy-headers
       --forwarded-allow-ips '*'
+      --workers 1
 
     healthCheckPath: /health
 
@@ -21,6 +22,8 @@ services:
 
       # Secrets (set these in Render; do not commit real values)
       - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SUPABASE_CONNECTION_STRING
         sync: false
 
       # Optional tuning (defaults are in app/config.py)

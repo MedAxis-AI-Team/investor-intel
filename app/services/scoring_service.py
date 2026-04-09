@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
+from app.models.common import Confidence
 from app.models.score_investors import (
     DimensionStrengths,
     InvestorAdvisorScore,
+    InvestorInput,
     InvestorInteractionBrief,
     InvestorScore,
     InvestorScoreBreakdown,
@@ -14,6 +18,64 @@ from app.models.score_investors import (
 from app.services._llm_normalizers import bucket_score, compute_investor_tier
 from app.services.confidence import ConfidencePolicy, penalize_for_missing_evidence, to_confidence
 from app.services.llm_client import LlmClient
+
+if TYPE_CHECKING:
+    from app.services.ingest_service import ClientInvestorRecord
+
+_NON_ALNUM = re.compile(r"[^a-z0-9\s]")
+
+
+def _normalize_firm_name(name: str) -> str:
+    return _NON_ALNUM.sub("", name.lower()).strip()
+
+
+def _grant_stub(
+    investor: InvestorInput,
+    source: str,
+    interactions: list[InvestorInteractionBrief],
+) -> tuple[InvestorScore, InvestorAdvisorScore]:
+    """Return a zero-score stub for grant-type investors.
+
+    Grant organizations are not evaluated by the VC scoring pipeline.
+    They are preserved in the response so callers can route them to /score-grants.
+    """
+    result = InvestorScore(
+        investor=investor,
+        composite_score=0,
+        investor_tier="Below Threshold",
+        investor_source=source,
+        confidence=Confidence(score=0.0, tier="LOW"),
+        suggested_contact="Not identified",
+        evidence_urls=[],
+        dimension_strengths=DimensionStrengths(
+            strategic_fit="Low",
+            stage_relevance="Low",
+            capital_alignment="Low",
+            scientific_depth=None,
+            market_activity="Low",
+            geographic_proximity="Low",
+        ),
+        narrative_summary="Grant-type organization. VC scoring does not apply. Evaluate via /score-grants.",
+        top_claims=[],
+        interactions=interactions,
+    )
+    advisor = InvestorAdvisorScore(
+        investor_name=investor.name,
+        outreach_angle="",
+        avoid=None,
+        re_engagement_notes=None,
+        full_axis_breakdown=InvestorScoreBreakdown(
+            thesis_alignment=0,
+            stage_fit=0,
+            check_size_fit=0,
+            scientific_regulatory_fit=None,
+            recency=0,
+            geography=0,
+        ),
+        notes="[GRANT] Excluded from VC scoring pipeline. Route to /score-grants for grant evaluation.",
+        evidence_urls=[],
+    )
+    return result, advisor
 
 
 @dataclass(frozen=True)
@@ -56,6 +118,29 @@ class ScoringService:
         self._weights = weights
         self._confidence_policy = confidence_policy
 
+    @staticmethod
+    def resolve_investor_context(
+        investors: list[InvestorInput],
+        client_records: list[ClientInvestorRecord],
+    ) -> tuple[list[str], list[list[InvestorInteractionBrief]]]:
+        """Match investors to client tracker records by normalized firm name.
+
+        Returns parallel (sources, interactions) lists aligned to the investors list.
+        source = "client_provided" if matched in tracker, "discovery" if not.
+        """
+        client_map = {_normalize_firm_name(r.firm_name): r for r in client_records}
+        sources: list[str] = []
+        interactions: list[list[InvestorInteractionBrief]] = []
+        for investor in investors:
+            record = client_map.get(_normalize_firm_name(investor.name))
+            if record:
+                sources.append("client_provided")
+                interactions.append(list(record.interactions))
+            else:
+                sources.append("discovery")
+                interactions.append([])
+        return sources, interactions
+
     async def score_investors(
         self,
         req: ScoreInvestorsRequest,
@@ -78,6 +163,12 @@ class ScoringService:
             interactions: list[InvestorInteractionBrief] = (
                 investor_interactions[idx] if investor_interactions else []
             ) or []
+
+            if investor.investor_type == "grant":
+                result, advisor = _grant_stub(investor, source, interactions)
+                results.append(result)
+                advisor_data.append(advisor)
+                continue
 
             llm_score = await self._llm.score_investor(
                 client_name=req.client.name,
@@ -105,6 +196,10 @@ class ScoringService:
                 policy=self._confidence_policy,
             )
 
+            # Angel investors have limited public data — cap confidence at MEDIUM
+            if investor.investor_type == "angel" and confidence_score >= self._confidence_policy.high_threshold:
+                confidence_score = self._confidence_policy.high_threshold - 0.001
+
             sci_depth = bucket_score(breakdown.scientific_regulatory_fit)
             dimension_strengths = DimensionStrengths(
                 strategic_fit=bucket_score(breakdown.thesis_alignment) or "Low",
@@ -129,13 +224,18 @@ class ScoringService:
                 interactions=interactions,
             ))
 
+            advisor_notes = llm_score.notes
+            if investor.investor_type == "angel":
+                angel_flag = "[ANGEL] Limited public data — confidence capped at MEDIUM. Manual verification recommended."
+                advisor_notes = f"{advisor_notes}\n\n{angel_flag}" if advisor_notes else angel_flag
+
             advisor_data.append(InvestorAdvisorScore(
                 investor_name=investor.name,
                 outreach_angle=llm_score.outreach_angle,
                 avoid=llm_score.avoid,
                 re_engagement_notes=None,
                 full_axis_breakdown=breakdown,
-                notes=llm_score.notes,
+                notes=advisor_notes,
                 evidence_urls=list(llm_score.evidence_urls),
             ))
 

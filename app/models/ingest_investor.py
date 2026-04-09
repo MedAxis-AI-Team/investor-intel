@@ -6,11 +6,13 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 InvestorType = Literal["vc", "cvc", "angel", "family_office", "grant", "accelerator", "other"]
-InvestorStatus = Literal["active", "declined", "dormant", "new"]
-EventType = Literal[
+RelationshipStatus = Literal["active", "declined", "dormant", "new"]
+InteractionType = Literal[
     "outreach", "meeting", "pitch", "follow_up", "decline",
     "re_engagement", "intro_via_third_party", "data_room_access", "term_sheet",
 ]
+# Alias kept for backwards-compat with score_investors imports
+EventType = InteractionType
 OutcomeType = Literal["pending", "interested", "rejected", "conditional", "timing_dependent"]
 DeclineReason = Literal[
     "stage_mismatch", "thesis_mismatch", "portfolio_conflict",
@@ -22,36 +24,31 @@ DeclineReason = Literal[
 # ── Request models ──────────────────────────────────────────────────────────
 
 class IngestContactInput(BaseModel):
-    name: str | None = Field(default=None, max_length=500)
+    full_name: str | None = Field(default=None, max_length=500)
+    first_name: str | None = Field(default=None, max_length=200)
+    last_name: str | None = Field(default=None, max_length=200)
     email: str | None = Field(default=None, max_length=500)
     title: str | None = Field(default=None, max_length=500)
-    phone: str | None = Field(default=None, max_length=100)
+    linkedin_url: str | None = Field(default=None, max_length=500)
 
 
 class IngestInteractionInput(BaseModel):
-    event_date: date | None = None
-    event_type: EventType
+    interaction_date: date | None = None
+    interaction_type: InteractionType
     summary: str = Field(min_length=1, max_length=5000)
     outcome: OutcomeType | None = None
     decline_reason: DeclineReason | None = None
-    next_step: str | None = Field(default=None, max_length=2000)
-    raw_segment: str | None = Field(default=None, max_length=10000)
+    next_steps: str | None = Field(default=None, max_length=2000)
+    raw_note_excerpt: str | None = Field(default=None, max_length=10000)
 
 
 class IngestInvestorInput(BaseModel):
-    investor_name: str = Field(min_length=1, max_length=500)
-    normalized_name: str = Field(min_length=1, max_length=500)
-    normalized_domain: str | None = Field(default=None, max_length=500)
+    firm_name: str = Field(min_length=1, max_length=500)
+    investor_name: str | None = Field(default=None, max_length=500)
     investor_type: InvestorType = "vc"
-    status: InvestorStatus
-    reported_deal_size: str | None = Field(default=None, max_length=200)
-    is_strategic: bool = False
-    is_foundation: bool = False
-    is_sovereign: bool = False
-    is_crossover: bool = False
-    internal_owner: str | None = Field(default=None, max_length=500)
-    raw_notes: str | None = Field(default=None, max_length=50000)
-    source_file: str | None = Field(default=None, max_length=500)
+    relationship_status: RelationshipStatus | None = None
+    website: str | None = Field(default=None, max_length=500)
+    notes: str | None = Field(default=None, max_length=50000)
 
 
 class IngestInvestorBundleRequest(BaseModel):
@@ -66,14 +63,12 @@ class IngestInvestorBundleRequest(BaseModel):
 class IngestInvestorBundleResponse(BaseModel):
     client_investor_id: str
     investor_id: str | None
-    needs_enrichment: bool
     contacts_upserted: int
     interactions_upserted: int
 
 
 class InvestorGapResult(BaseModel):
-    name: str
-    normalized_name: str
+    firm_name: str
     overall_score: int | None
     investor_type: str | None
 

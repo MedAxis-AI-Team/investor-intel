@@ -21,6 +21,7 @@ PipelineStatus = Literal[
 InvestorSource = Literal["discovery", "client_provided"]
 InvestorTier = Literal["Tier 1", "Tier 2", "Below Threshold"]
 DimensionLevel = Literal["High", "Medium", "Low"]
+InvestorType = Literal["vc", "cvc", "angel", "family_office", "grant", "accelerator", "other"]
 
 
 class ClientProfile(BaseModel):
@@ -36,6 +37,7 @@ class InvestorInput(BaseModel):
     website: str | None = Field(default=None, max_length=500)
     notes: str | None = Field(default=None, max_length=2000)
     pipeline_status: PipelineStatus | None = Field(default=None)
+    investor_type: InvestorType | None = Field(default=None)
 
 
 class ScoreInvestorsRequest(BaseModel):

@@ -32,7 +32,7 @@ source venv/bin/activate && coverage run -m pytest && coverage report -m        
 - `app/main.py` — `create_app()` factory. Request-ID middleware, exception handlers, router registration.
 - `app/main_deps.py` — FastAPI DI wiring. Builds services from settings. This is where LlmClient is swapped in tests.
 - `app/api/deps.py` — Rate limiting (in-memory fixed window per IP). No API key auth (N8N handles upstream).
-- `app/api/routers/` — One router per endpoint: `score_investors`, `analyze_signal`, `generate_digest`, `score_grants`, `benchmark`, `health`, `ingest_investor`.
+- `app/api/routers/` — One router per endpoint: `score_investors`, `analyze_signal`, `generate_digest`, `score_grants`, `health`, `ingest_investor`.
 - `app/services/llm_client.py` — `LlmClient` Protocol + frozen dataclasses for LLM return types. All services depend on this abstraction.
 - `app/services/anthropic_client.py` — Concrete `AnthropicLlmClient`. Sends structured prompts, parses raw JSON from Claude responses.
 - `app/services/_llm_normalizers.py` — All LLM output normalization: enum lookup tables, expiry computation, FDA detection, contact enforcement. Extracted from `anthropic_client.py` per 600-line file limit.
@@ -66,8 +66,6 @@ Bucketing: raw ≥70 → "High" · ≥45 → "Medium" · <45 → "Low". Implemen
 
 **Testing pattern:** `conftest.py` provides `_FakeLlmClient` that returns deterministic data. Tests override `get_llm_client` dependency — no real Anthropic calls.
 
-**Benchmarking system:** `benchmarks/` module evaluates investor scoring accuracy against known investor-client pairs. Tracks hit rates (HIGH/MEDIUM/LOW tier predictions vs expected), confusion matrix, confidence calibration (Platt scaling), field/URL/computation/consistency validators. Accessible via `POST /benchmark` endpoint or CLI (`python -m benchmarks.cli`). Results persisted to `benchmarks/results/` (gitignored).
-
 **Error handling:** Global catch-all exception handler returns structured `ApiResponse` with `internal_error` code for any unhandled exception. LLM JSON parsing strips markdown code fences and guards against empty responses before `json.loads`.
 
 **Signal source types:** `SEC_EDGAR`, `GOOGLE_NEWS`, `OTHER`, `X_GROK`. When `signal_type == "X_GROK"`, the signal prompt includes X-specific engagement/content weighting and returns `x_signal_type` (thesis_statement, conference_signal, fund_activity, portfolio_mention, hiring_signal, general_activity). Non-X_GROK sources return `x_signal_type: null`. Request accepts `x_engagement_data` (replies, reposts, likes, is_original_post, author, author_type) for structured engagement metric injection into the prompt. `SignalInvestorContext` includes `firm`, `SignalClientContext` includes `stage`.
@@ -76,7 +74,7 @@ Bucketing: raw ≥70 → "High" · ≥45 → "Medium" · <45 → "Low". Implemen
 
 **LLM output contract** (`.claude/rules/llm-output-contract.md`): LLM responses are untrusted. Enum fields are normalized via lookup tables, exact-string fields are enforced by regex, computable fields (dates, arithmetic) are derived in Python — never from LLM output. Prompt instructions are defense-in-depth only. `x_signal_type`, `window`, and `priority` fields are all code-normalized via lookup tables.
 
-**Ingestion layer:** `POST /ingest/investor-bundle` accepts a client's existing investor tracker entry (investor + contacts + interactions) and writes atomically to `client_investors`, `investor_contacts`, `investor_interactions` via a single Postgres transaction. Cross-references against the core `investors` table by normalized_name then domain — sets `needs_enrichment = true` when no match. `GET /ingest/investor-gap/{client_id}` returns investors in the core table not yet in the client's pipeline. DB layer requires `DATABASE_URL` env var (Supabase/Postgres). Omitting it disables the ingest endpoints with 503. Tables: `client_investors`, `investor_contacts`, `investor_interactions`, `ingestion_errors` (dead-letter, written by n8n directly, not the bundle endpoint). Migration: `migrations/001_client_investor_ingestion.sql`.
+**Ingestion layer:** `POST /ingest/investor-bundle` accepts a client's existing investor tracker entry (investor + contacts + interactions) and writes atomically to `client_investors`, `investor_contacts`, `investor_interactions` via a single Postgres transaction. Cross-references against the core `investors` table by firm_name (ILIKE) then website within the same client's scope — `investor_id` is null when no match. `GET /ingest/investor-gap/{client_id}` returns investors in the core table not yet in the client's pipeline. `client_id` must be a valid UUID. DB layer requires `SUPABASE_CONNECTION_STRING` env var (Supabase Session Pooler, port 5432). Omitting it disables the ingest endpoints with 503. Tables: `client_investors`, `investor_contacts`, `investor_interactions`, `ingestion_errors` (dead-letter, written by n8n directly, not the bundle endpoint). Migration `migrations/001_client_investor_ingestion.sql` is reference only — live schema may differ.
 
 **Deployment:** Render (see `render.yaml`). Health check at `/health`. Docs UI at `/` (root).
 

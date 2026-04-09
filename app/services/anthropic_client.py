@@ -24,11 +24,14 @@ from app.services.llm_client import (
     LlmDigestResult,
     LlmGrantScore,
     LlmInvestorScore,
+    LlmRetryExhaustedError,
     LlmSignalAnalysis,
     LlmSignalBriefing,
     LlmXActivitySection,
     LlmXActivitySignal,
 )
+
+_MAX_JSON_RETRIES = 2
 
 
 class AnthropicLlmClient(LlmClient):
@@ -38,32 +41,49 @@ class AnthropicLlmClient(LlmClient):
         self._max_tokens = settings.llm_max_tokens
 
     async def _json_call(self, *, system: str, user: str) -> dict:
-        message = await self._client.messages.create(
-            model=self._model,
-            max_tokens=self._max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
+        last_raw = ""
+        for attempt in range(_MAX_JSON_RETRIES + 1):
+            current_system = system
+            if attempt > 0:
+                current_system = (
+                    system
+                    + " CRITICAL: Your previous response was not valid JSON."
+                    " Return ONLY raw JSON — no markdown fences, no explanation, no preamble."
+                )
 
-        text = ""
-        for block in message.content:
-            if getattr(block, "type", None) == "text":
-                text += block.text
-
-        # Strip markdown code fences if the LLM wrapped its JSON output
-        text = text.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1]
-            text = text.rsplit("```", 1)[0]
-            text = text.strip()
-
-        if not text:
-            raise ValueError(
-                f"LLM returned empty text (stop_reason={message.stop_reason}). "
-                "Check API key, model config, and prompt length."
+            message = await self._client.messages.create(
+                model=self._model,
+                max_tokens=self._max_tokens,
+                system=current_system,
+                messages=[{"role": "user", "content": user}],
             )
 
-        return json.loads(text)
+            text = ""
+            for block in message.content:
+                if getattr(block, "type", None) == "text":
+                    text += block.text
+
+            # Strip markdown code fences if the LLM wrapped its JSON output
+            text = text.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1]
+                text = text.rsplit("```", 1)[0]
+                text = text.strip()
+
+            if not text:
+                raise ValueError(
+                    f"LLM returned empty text (stop_reason={message.stop_reason}). "
+                    "Check API key, model config, and prompt length."
+                )
+
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                last_raw = text
+                if attempt < _MAX_JSON_RETRIES:
+                    continue
+
+        raise LlmRetryExhaustedError(raw=last_raw)
 
     async def score_investor(
         self,
@@ -285,7 +305,10 @@ class AnthropicLlmClient(LlmClient):
             headline=str(briefing_data.get("headline", title)),
             why_it_matters=str(briefing_data.get("why_it_matters", "")),
             outreach_angle=str(briefing_data.get("outreach_angle", "")),
-            suggested_contact=str(briefing_data.get("suggested_contact", "")),
+            suggested_contact=enforce_suggested_contact(
+                str(briefing_data.get("suggested_contact", "")),
+                investor_notes=str(briefing_data.get("why_it_matters", "")),
+            ),
             time_sensitivity=str(briefing_data.get("time_sensitivity", "")),
             source_urls=list(briefing_data.get("source_urls") or []),
         )

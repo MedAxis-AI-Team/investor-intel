@@ -238,6 +238,22 @@ def bucket_score(raw: int | None, high: int = 70, mid: int = 45) -> str | None:
     return "Low"
 
 
+# ---------------------------------------------------------------------------
+# Grant confidence normalization (score_grants output)
+# ---------------------------------------------------------------------------
+
+_GRANT_CONFIDENCE_MAP: dict[str, str] = {
+    "high": "high", "very high": "high", "strong": "high",
+    "medium": "medium", "moderate": "medium",
+    "low": "low", "weak": "low",
+}
+
+
+def normalize_grant_confidence(raw: str) -> str:
+    """Normalize LLM confidence string to high|medium|low. Falls back to 'medium'."""
+    return _GRANT_CONFIDENCE_MAP.get(raw.lower().strip(), "medium")
+
+
 def compute_investor_tier(composite_score: int) -> str:
     """Derive investor tier from composite score (deterministic, never from LLM).
 
