@@ -67,3 +67,11 @@ def get_db_pool(request: Request) -> asyncpg.Pool:
 
 def get_ingest_service(pool: asyncpg.Pool = Depends(get_db_pool)) -> IngestService:
     return IngestService(pool=pool)
+
+
+def get_optional_ingest_service(request: Request) -> IngestService | None:
+    """Return IngestService when pool is available, None otherwise (non-blocking degraded mode)."""
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is None:
+        return None
+    return IngestService(pool=pool)

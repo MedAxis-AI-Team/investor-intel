@@ -16,15 +16,22 @@ from app.services._llm_normalizers import (
     normalize_x_signal_type,
 )
 from app.services.llm_client import (
+    LlmAdvisorCallPlan,
+    LlmAdvisorObjection,
+    LlmAdvisorOutreachAngle,
+    LlmAdvisorPrep,
     LlmClient,
     LlmDigestResult,
     LlmGrantScore,
     LlmInvestorScore,
+    LlmRetryExhaustedError,
     LlmSignalAnalysis,
     LlmSignalBriefing,
     LlmXActivitySection,
     LlmXActivitySignal,
 )
+
+_MAX_JSON_RETRIES = 2
 
 
 class AnthropicLlmClient(LlmClient):
@@ -34,32 +41,49 @@ class AnthropicLlmClient(LlmClient):
         self._max_tokens = settings.llm_max_tokens
 
     async def _json_call(self, *, system: str, user: str) -> dict:
-        message = await self._client.messages.create(
-            model=self._model,
-            max_tokens=self._max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
+        last_raw = ""
+        for attempt in range(_MAX_JSON_RETRIES + 1):
+            current_system = system
+            if attempt > 0:
+                current_system = (
+                    system
+                    + " CRITICAL: Your previous response was not valid JSON."
+                    " Return ONLY raw JSON — no markdown fences, no explanation, no preamble."
+                )
 
-        text = ""
-        for block in message.content:
-            if getattr(block, "type", None) == "text":
-                text += block.text
-
-        # Strip markdown code fences if the LLM wrapped its JSON output
-        text = text.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1]
-            text = text.rsplit("```", 1)[0]
-            text = text.strip()
-
-        if not text:
-            raise ValueError(
-                f"LLM returned empty text (stop_reason={message.stop_reason}). "
-                "Check API key, model config, and prompt length."
+            message = await self._client.messages.create(
+                model=self._model,
+                max_tokens=self._max_tokens,
+                system=current_system,
+                messages=[{"role": "user", "content": user}],
             )
 
-        return json.loads(text)
+            text = ""
+            for block in message.content:
+                if getattr(block, "type", None) == "text":
+                    text += block.text
+
+            # Strip markdown code fences if the LLM wrapped its JSON output
+            text = text.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1]
+                text = text.rsplit("```", 1)[0]
+                text = text.strip()
+
+            if not text:
+                raise ValueError(
+                    f"LLM returned empty text (stop_reason={message.stop_reason}). "
+                    "Check API key, model config, and prompt length."
+                )
+
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                last_raw = text
+                if attempt < _MAX_JSON_RETRIES:
+                    continue
+
+        raise LlmRetryExhaustedError(raw=last_raw)
 
     async def score_investor(
         self,
@@ -106,17 +130,22 @@ class AnthropicLlmClient(LlmClient):
                 "Focus only on B2B metrics: customer traction, partnerships, adoption rate, revenue.\n\n"
                 "Also provide:\n"
                 "  outreach_angle: A specific, actionable outreach strategy (1-2 sentences)\n"
+                "  avoid: One sentence on what NOT to lead with for this investor (e.g. specific objections or known sensitivities)\n"
                 "  suggested_contact: The named person to contact, or exactly \"Not identified\"\n"
                 "  confidence_score: 0.0-1.0 reflecting data quality\n"
                 "  evidence_urls: list of supporting URLs\n"
-                "  notes: additional context or null\n\n"
+                "  notes: additional context or null\n"
+                "  narrative_summary: 2-3 sentence plain-language summary of why this investor is or isn't a fit\n"
+                "  top_claims: list of 3-5 specific human-readable evidence strings (e.g. 'Invested in 3 Series B medtech companies in 2024')\n\n"
                 "Return JSON with keys: thesis_alignment, stage_fit, check_size_fit, "
                 "scientific_regulatory_fit (int or null), recency, geography (0-100 ints), "
-                "outreach_angle (string), suggested_contact (string), "
-                "confidence_score (0.0-1.0), evidence_urls (list of urls), notes (string or null)."
+                "outreach_angle (string), avoid (string), suggested_contact (string), "
+                "confidence_score (0.0-1.0), evidence_urls (list of urls), notes (string or null), "
+                "narrative_summary (string), top_claims (list of 3-5 strings)."
             ),
         )
 
+        top_claims_raw = payload.get("top_claims") or []
         return LlmInvestorScore(
             thesis_alignment=int(payload["thesis_alignment"]),
             stage_fit=int(payload["stage_fit"]),
@@ -130,11 +159,14 @@ class AnthropicLlmClient(LlmClient):
             geography=int(payload["geography"]),
             notes=payload.get("notes"),
             outreach_angle=str(payload["outreach_angle"]),
+            avoid=str(payload["avoid"]) if payload.get("avoid") else None,
             suggested_contact=enforce_suggested_contact(
                 str(payload["suggested_contact"]), investor_notes,
             ),
             evidence_urls=list(payload.get("evidence_urls") or []),
             confidence_score=float(payload["confidence_score"]),
+            narrative_summary=str(payload.get("narrative_summary") or ""),
+            top_claims=[str(c) for c in top_claims_raw[:5]],
         )
 
     async def analyze_signal(
@@ -273,7 +305,10 @@ class AnthropicLlmClient(LlmClient):
             headline=str(briefing_data.get("headline", title)),
             why_it_matters=str(briefing_data.get("why_it_matters", "")),
             outreach_angle=str(briefing_data.get("outreach_angle", "")),
-            suggested_contact=str(briefing_data.get("suggested_contact", "")),
+            suggested_contact=enforce_suggested_contact(
+                str(briefing_data.get("suggested_contact", "")),
+                investor_notes=str(briefing_data.get("why_it_matters", "")),
+            ),
             time_sensitivity=str(briefing_data.get("time_sensitivity", "")),
             source_urls=list(briefing_data.get("source_urls") or []),
         )
@@ -311,12 +346,26 @@ class AnthropicLlmClient(LlmClient):
         investors: list[tuple[str, str | None]],
         market_context: str | None,
         x_signals: list[dict] | None,
+        therapeutic_area: str | None,
+        stage: str | None,
+        target_raise: str | None,
     ) -> LlmDigestResult:
         market_section = (
             f"\nReal-time market context (use for the Market Pulse section):\n{market_context}"
             if market_context
             else ""
         )
+        client_context_parts = []
+        if therapeutic_area:
+            client_context_parts.append(f"  Therapeutic area: {therapeutic_area}")
+        if stage:
+            client_context_parts.append(f"  Stage: {stage}")
+        if target_raise:
+            client_context_parts.append(f"  Target raise: {target_raise}")
+        client_context_section = (
+            "\nClient context:\n" + "\n".join(client_context_parts) if client_context_parts else ""
+        )
+
         investor_section = ""
         if investors:
             investor_lines = "\n".join(
@@ -359,27 +408,43 @@ class AnthropicLlmClient(LlmClient):
             ' "No X signals recorded this week."'
         )
 
+        internal_schema_instruction = (
+            "\n\nReturn a JSON object with two top-level keys:"
+            "\n1. client_digest: object with keys subject (string), preheader (string),"
+            " sections (list of objects with title and bullets),"
+            f" and x_activity_section.{x_schema_instruction}"
+            "\n2. internal_digest: advisor preparation object with keys:"
+            "\n  key_insights: list of 3-5 bullet strings summarizing the most important signals this week"
+            "\n  outreach_angles: list of objects per investor with investor_name, angle (2-3 sentences: what to lead with),"
+            " avoid (1 sentence: what NOT to say), re_engagement_notes (string or null — only if prior decline + new signal)"
+            "\n  call_plan: object with opening_framing (~2 min framing string),"
+            " discussion_threads (list of 3-5 strings), desired_outcome (string)"
+            "\n  likely_objections: list of objects with objection (string) and response (string)"
+            "\n  risks_sensitivities: list of strings"
+            "\n  questions_to_ask: list of strings"
+        )
+
         payload = await self._json_call(
             system="You are a strict JSON-only digest generator. Output ONLY valid JSON.",
             user=(
-                "Generate a weekly digest for a client.\n"
+                "Generate a weekly investor intelligence digest for a client.\n"
                 f"Client: {client_name}\n"
                 f"Week: {week_start} to {week_end}"
+                f"{client_context_section}"
                 f"{market_section}"
                 f"{investor_section}\n"
                 f"Signals: {signals}"
-                f"{x_section_prompt}\n\n"
-                "Return JSON with keys: subject (string), preheader (string),"
-                " sections (list of objects with title and bullets)."
-                f"{x_schema_instruction}"
+                f"{x_section_prompt}"
+                f"{internal_schema_instruction}"
             ),
         )
 
+        client_raw = payload.get("client_digest") or payload
         sections = []
-        for section in payload["sections"]:
+        for section in client_raw.get("sections", []):
             sections.append((str(section["title"]), [str(b) for b in (section.get("bullets") or [])]))
 
-        x_section_raw = payload.get("x_activity_section") or {}
+        x_section_raw = client_raw.get("x_activity_section") or {}
         x_activity_signals = []
         for sig in x_section_raw.get("signals", []):
             x_activity_signals.append(LlmXActivitySignal(
@@ -401,11 +466,48 @@ class AnthropicLlmClient(LlmClient):
             section_note=str(x_note) if x_note else None,
         )
 
+        advisor_raw = payload.get("internal_digest") or {}
+        advisor_prep = self._parse_advisor_prep(advisor_raw)
+
         return LlmDigestResult(
-            subject=str(payload["subject"]),
-            preheader=str(payload["preheader"]),
+            subject=str(client_raw.get("subject", "")),
+            preheader=str(client_raw.get("preheader", "")),
             sections=sections,
             x_activity_section=x_activity_section,
+            advisor_prep=advisor_prep,
+        )
+
+    def _parse_advisor_prep(self, raw: dict) -> LlmAdvisorPrep:
+        angles = []
+        for a in raw.get("outreach_angles") or []:
+            angles.append(LlmAdvisorOutreachAngle(
+                investor_name=str(a.get("investor_name", "")),
+                angle=str(a.get("angle", "")),
+                avoid=str(a.get("avoid", "")),
+                re_engagement_notes=a.get("re_engagement_notes"),
+            ))
+
+        call_raw = raw.get("call_plan") or {}
+        call_plan = LlmAdvisorCallPlan(
+            opening_framing=str(call_raw.get("opening_framing", "")),
+            discussion_threads=[str(t) for t in (call_raw.get("discussion_threads") or [])],
+            desired_outcome=str(call_raw.get("desired_outcome", "")),
+        )
+
+        objections = []
+        for o in raw.get("likely_objections") or []:
+            objections.append(LlmAdvisorObjection(
+                objection=str(o.get("objection", "")),
+                response=str(o.get("response", "")),
+            ))
+
+        return LlmAdvisorPrep(
+            key_insights=[str(i) for i in (raw.get("key_insights") or [])],
+            outreach_angles=angles,
+            call_plan=call_plan,
+            likely_objections=objections,
+            risks_sensitivities=[str(r) for r in (raw.get("risks_sensitivities") or [])],
+            questions_to_ask=[str(q) for q in (raw.get("questions_to_ask") or [])],
         )
 
     async def score_grant(

@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 
 NOVABIO_PAYLOAD = {
-    "schema_version": "2026-03-03",
+    "schema_version": "2026-04-14",
     "client": {
         "name": "NovaBio Diagnostics",
         "thesis": (
@@ -41,32 +41,47 @@ def test_smoke_score_investors_novabio(client: TestClient) -> None:
     assert body["request_id"] is not None
 
     results = body["data"]["results"]
+    advisor_data = body["data"]["advisor_data"]
     assert len(results) == 1
 
     result = results[0]
     assert result["investor"]["name"] == "OrbiMed Advisors"
     assert result["investor"]["pipeline_status"] == "uncontacted"
-    assert isinstance(result["overall_score"], int)
-    assert 0 <= result["overall_score"] <= 100
+    assert isinstance(result["composite_score"], int)
+    assert 0 <= result["composite_score"] <= 100
 
-    # Required response fields
-    assert "outreach_angle" in result
+    # investor_tier and investor_source
+    assert result["investor_tier"] in ("Tier 1", "Tier 2", "Below Threshold")
+    assert result["investor_source"] in ("discovery", "client_provided")
+
+    # narrative_summary and top_claims (client-facing)
+    assert result["narrative_summary"]
+    assert isinstance(result["top_claims"], list)
+
+    # suggested_contact stays in client-facing result
     assert "suggested_contact" in result
-    assert result["outreach_angle"]  # non-empty
-    assert result["suggested_contact"]  # non-empty
+    assert result["suggested_contact"]
 
     # Confidence
     assert result["confidence"]["tier"] in ("HIGH", "MEDIUM", "LOW")
     assert 0.0 <= result["confidence"]["score"] <= 1.0
 
-    # 6-axis breakdown — all present
-    breakdown = result["breakdown"]
+    # dimension_strengths (client-facing, bucketed labels)
+    ds = result["dimension_strengths"]
+    for dim in ("strategic_fit", "stage_relevance", "capital_alignment", "market_activity", "geographic_proximity"):
+        assert ds[dim] in ("High", "Medium", "Low"), f"dimension {dim} invalid: {ds[dim]}"
+
+    # outreach_angle moved to advisor_data (internal)
+    assert advisor_data[0]["outreach_angle"]
+
+    # 6-axis breakdown in advisor_data (raw 0–100 scores)
+    breakdown = advisor_data[0]["full_axis_breakdown"]
     for axis in ("thesis_alignment", "stage_fit", "check_size_fit", "recency", "geography"):
         assert axis in breakdown, f"Missing axis: {axis}"
         assert 0 <= breakdown[axis] <= 100
     assert "scientific_regulatory_fit" in breakdown
 
-    # strategic_value must NOT be in the response
+    # strategic_value must NOT be in the breakdown
     assert "strategic_value" not in breakdown
 
 
@@ -76,8 +91,8 @@ def test_smoke_score_investors_novabio_full_client_fields(client: TestClient) ->
 
     body = resp.json()
     assert body["success"] is True
-    # Validates that geography, funding_target, and competitor_watchlist are accepted
-    assert body["data"]["schema_version"] == "2026-03-03"
+    # Validates schema_version in response matches the bumped version
+    assert body["data"]["schema_version"] == "2026-04-14"
 
 
 def test_smoke_analyze_signal_with_contexts(client: TestClient) -> None:

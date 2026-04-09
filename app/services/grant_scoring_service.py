@@ -8,6 +8,7 @@ from app.models.score_grants import (
     ScoreGrantsResponse,
     ScoredGrant,
 )
+from app.services._llm_normalizers import normalize_grant_confidence
 from app.services.llm_client import LlmClient
 
 
@@ -66,7 +67,7 @@ class GrantScoringService:
                     breakdown=breakdown,
                     rationale=llm_score.rationale,
                     application_guidance=llm_score.application_guidance,
-                    confidence=llm_score.confidence,  # type: ignore[arg-type]
+                    confidence=normalize_grant_confidence(llm_score.confidence),
                 )
             )
 

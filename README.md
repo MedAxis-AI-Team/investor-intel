@@ -30,13 +30,12 @@ Docs UI at `/` (root). Health check at `/health`.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/health` | none | Health check |
-| `POST` | `/score-investors` | rate limited | 6-axis investor scoring with confidence tiers |
+| `POST` | `/score-investors` | rate limited | 6-axis investor scoring. Returns dual DTO: `results[]` (client-facing: `composite_score`, `investor_tier`, `dimension_strengths`, `top_claims`) + `advisor_data[]` (internal: `outreach_angle`, `full_axis_breakdown`). |
 | `POST` | `/analyze-signal` | rate limited | Signal analysis (news, events, X/Grok posts). X_GROK source returns `x_signal_type`. |
-| `POST` | `/generate-digest` | rate limited | Investor digest generation with `x_activity_section` for X signals |
+| `POST` | `/generate-digest` | rate limited | Investor digest. Returns `client_digest` (email sections + `x_activity_section`) and `internal_digest` (advisor prep: `key_insights`, `call_plan`, `outreach_angles`, `likely_objections`). |
 | `POST` | `/score-grants` | rate limited | Grant opportunity scoring |
-| `POST` | `/benchmark` | rate limited | Run accuracy evaluation against known investor-client pairs |
-| `POST` | `/ingest/investor-bundle` | rate limited | Ingest a client's investor entry (atomic 3-table upsert). Requires `DATABASE_URL`. |
-| `GET` | `/ingest/investor-gap/{client_id}` | rate limited | Top investors in core table not yet in client's pipeline. Requires `DATABASE_URL`. |
+| `POST` | `/ingest/investor-bundle` | rate limited | Ingest a client's investor entry (atomic 3-table upsert). Requires `SUPABASE_CONNECTION_STRING`. |
+| `GET` | `/ingest/investor-gap/{client_id}` | rate limited | Top investors in core table not yet in client's pipeline. Requires `SUPABASE_CONNECTION_STRING`. |
 
 No API key required — N8N handles auth upstream.
 
@@ -132,32 +131,34 @@ Response always includes `x_activity_section` with sorted signals (immediate →
 curl -X POST http://localhost:8000/ingest/investor-bundle \
   -H "Content-Type: application/json" \
   -d '{
-    "client_id": "novabio-therapeutics",
+    "client_id": "5b461960-3af1-4ae2-a733-c95e6a1ef04e",
     "investor": {
-      "investor_name": "OrbiMed Advisors",
-      "normalized_name": "orbimed advisors",
-      "normalized_domain": "orbimed.com",
+      "firm_name": "OrbiMed Advisors",
       "investor_type": "vc",
-      "status": "active",
-      "reported_deal_size": "$10M-$30M",
-      "is_strategic": false,
-      "internal_owner": "Jerome"
+      "relationship_status": "active",
+      "website": "orbimed.com"
     },
     "contacts": [
-      { "name": "Jonathan Silverstein", "email": "jsilverstein@orbimed.com", "title": "Partner" }
+      {
+        "full_name": "Jonathan Silverstein",
+        "email": "jsilverstein@orbimed.com",
+        "title": "Partner"
+      }
     ],
     "interactions": [
       {
-        "event_date": "2026-03-15",
-        "event_type": "intro_call",
+        "interaction_date": "2026-03-15",
+        "interaction_type": "intro_via_third_party",
         "summary": "Initial call — strong thesis alignment on CAR-T",
-        "outcome": "positive",
-        "next_step": "Send deck by March 20",
-        "raw_segment": "Called Jonathan, discussed CAR-T pipeline..."
+        "outcome": "interested",
+        "next_steps": "Send deck by March 20",
+        "raw_note_excerpt": "Called Jonathan, discussed CAR-T pipeline..."
       }
     ]
   }'
 ```
+
+`client_id` must be a valid UUID from the `clients` table. `relationship_status` accepts: `active`, `declined`, `dormant`, `new`. `interaction_type` accepts: `outreach`, `meeting`, `pitch`, `follow_up`, `decline`, `re_engagement`, `intro_via_third_party`, `data_room_access`, `term_sheet`.
 
 Response:
 ```json
@@ -165,51 +166,29 @@ Response:
   "success": true,
   "data": {
     "client_investor_id": "uuid...",
-    "investor_id": "uuid...",
-    "needs_enrichment": false,
+    "investor_id": "uuid or null",
     "contacts_upserted": 1,
     "interactions_upserted": 1
   }
 }
 ```
 
-`needs_enrichment: true` when the investor cannot be matched to the core `investors` table (by name or domain). The record is still saved and flagged for the enrichment pipeline.
+`investor_id` is non-null when the firm is matched to the core `investors` table (by firm name or website within the client's scope).
 
 ### Example: get gap investors
 
 ```bash
-curl "http://localhost:8000/ingest/investor-gap/novabio-therapeutics?limit=10"
+curl "http://localhost:8000/ingest/investor-gap/5b461960-3af1-4ae2-a733-c95e6a1ef04e?limit=10"
 ```
 
 Returns the top investors in the core `investors` table (by `overall_score`) that are not yet in the client's pipeline.
-
-### Example: run benchmark via API
-
-```bash
-curl -X POST http://localhost:8000/benchmark \
-  -H "Content-Type: application/json" \
-  -d '{
-    "sample_size": 3,
-    "skip_url_check": true,
-    "skip_consistency": true
-  }'
-```
-
-**`BenchmarkRequest` fields:**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `sample_size` | `int \| null` | all | Limit to first N test cases |
-| `skip_url_check` | `bool` | `true` | Skip HTTP HEAD reachability for evidence URLs |
-| `skip_consistency` | `bool` | `true` | Skip repeat-run variance checks (saves LLM calls) |
-| `consistency_runs` | `int` | `3` | Number of runs per case for consistency (2–10) |
 
 ## Tests
 
 ```bash
 source venv/bin/activate
 
-# Run all tests (139 total: 108 API + 31 benchmark)
+# Run all tests
 python -m pytest
 
 # Verbose output
@@ -236,91 +215,12 @@ tests/
     test_analyze_signal.py     # 10 tests — signal analysis, X_GROK, engagement data
     test_generate_digest.py    #  2 tests — digest structure + x_activity_section
     test_score_grants.py       #  9 tests — grant scoring, sorting, validation
-    test_benchmark.py          #  5 tests — benchmark endpoint integration
     test_health.py             #  1 test
     test_rate_limit.py         #  1 test
     test_smoke.py              #  4 tests — realistic payloads, end-to-end shape
     test_bulletproof.py        # 58 tests — edge cases, validation, all endpoints
     test_ingest_investor.py    # 11 tests — ingestion bundle + gap analysis, fake pool
-  benchmark/
-    test_validators.py         # 14 tests — field, computation, URL validators
-    test_confusion.py          #  6 tests — confusion matrix builder
-    test_calibration.py        #  6 tests — confidence calibration + ECE
-    test_reporter.py           #  5 tests — summary generation + trends
 ```
-
-## Benchmarking
-
-The benchmarking system evaluates investor scoring accuracy against known investor-client pairs. It tracks hit rates, validates outputs, and calibrates confidence scores.
-
-### Run a benchmark
-
-Requires a real `ANTHROPIC_API_KEY` in `.env`.
-
-```bash
-source venv/bin/activate
-
-# Full evaluation (calls real LLM — all 10 dataset cases)
-python -m benchmarks.cli --dataset benchmarks/dataset.json
-
-# Fast run — skip URL reachability and consistency checks
-python -m benchmarks.cli --skip-url-check --skip-consistency
-
-# Run on first 3 cases only
-python -m benchmarks.cli --sample-size 3 --skip-url-check --skip-consistency
-
-# View summary of previous runs (no LLM calls)
-python -m benchmarks.cli --summary-only
-
-# Debug logging
-python -m benchmarks.cli --verbose --skip-url-check --skip-consistency
-```
-
-### What it measures
-
-| Metric | Description |
-|--------|-------------|
-| **Hit rate** | % of correct HIGH/MEDIUM/LOW tier predictions vs expected tiers (target: 30–50%) |
-| **Confusion matrix** | Per-class precision, recall, F1 for tier classification |
-| **Validation pass rate** | % of field, computation, and URL checks that pass |
-| **Consistency** | Std dev across repeated runs per scoring axis (threshold: 15) |
-| **Confidence calibration** | Expected Calibration Error (ECE) via Platt scaling (activates after 30+ samples) |
-
-### Validators
-
-| Validator | What it checks |
-|-----------|---------------|
-| `FieldValidator` | Score ranges (0–100), confidence (0.0–1.0), required string fields, evidence URL type |
-| `ComputationValidator` | Weighted sum correctness, null sci_reg redistribution, evidence penalty logic |
-| `UrlValidator` | Evidence URL format (urlparse); optional HTTP HEAD reachability (5s timeout) |
-| `ConsistencyValidator` | Std dev per scoring axis across N LLM runs — flags if > 15 |
-
-### CLI flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--dataset` | `benchmarks/dataset.json` | Path to benchmark dataset |
-| `--output` | `benchmarks/results/` | Results output directory |
-| `--sample-size` | all | Limit to first N test cases |
-| `--skip-url-check` | off | Skip HTTP HEAD reachability for evidence URLs |
-| `--skip-consistency` | off | Skip repeat-run variance checks (saves LLM calls) |
-| `--consistency-runs` | 3 | Number of runs per case for consistency |
-| `--summary-only` | off | Print summary of previous runs only |
-| `--verbose` | off | Debug logging |
-
-Results are persisted to `benchmarks/results/` (gitignored). Exit code 1 if hit rate < 30%.
-
-### Benchmark dataset
-
-`benchmarks/dataset.json` — 10 cases with known investor-client pairs and expected score ranges/tiers:
-
-| Cases | Scenario |
-|-------|----------|
-| 001, 003, 005, 007 | Strong fit (expected HIGH) |
-| 002, 006 | Weak fit (expected LOW) |
-| 004, 009 | Moderate fit (expected MEDIUM) |
-| 008 | Edge case — no geography |
-| 010 | Edge case — minimal investor info |
 
 ## Scoring Model
 
@@ -346,12 +246,12 @@ All config via environment variables. See `.env.example` for the full list.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | — | Required. Anthropic API key |
-| `DATABASE_URL` | — | Required for `/ingest/*` endpoints. Supabase/Postgres connection string. Leave empty to disable DB layer. |
+| `SUPABASE_CONNECTION_STRING` | — | Required for `/ingest/*` endpoints. Supabase Session Pooler URL (port 5432). Format: `postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres` |
 | `GH_TOKEN` | — | Optional. GitHub token for GitHub data source |
 | `XAI_API_KEY` | — | Optional. xAI API key for X/Grok signal source |
 | `ENVIRONMENT` | `development` | `development` or `production` |
 | `LLM_MODEL` | `claude-sonnet-4-20250514` | Claude model to use |
-| `LLM_MAX_TOKENS` | `1024` | Max tokens per LLM response |
+| `LLM_MAX_TOKENS` | `4096` | Max tokens per LLM response |
 | `REQUEST_TIMEOUT_SECONDS` | `20` | LLM call timeout |
 | `RATE_LIMIT_WINDOW_SECONDS` | `60` | Rate limit window |
 | `RATE_LIMIT_MAX_REQUESTS` | `60` | Max requests per window per IP |

@@ -1,22 +1,31 @@
 from __future__ import annotations
 
-import hashlib
 import logging
 import uuid
+from dataclasses import dataclass, field
 
 import asyncpg
 
 from app.models.ingest_investor import (
+    IngestContactInput,
+    IngestInteractionInput,
     IngestInvestorBundleRequest,
     IngestInvestorBundleResponse,
     IngestInvestorInput,
-    IngestContactInput,
-    IngestInteractionInput,
     InvestorGapResponse,
     InvestorGapResult,
 )
+from app.models.score_investors import InvestorInteractionBrief
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ClientInvestorRecord:
+    firm_name: str
+    investor_type: str
+    relationship_status: str
+    interactions: list[InvestorInteractionBrief] = field(default_factory=list)
 
 
 class IngestService:
@@ -24,63 +33,121 @@ class IngestService:
         self._pool = pool
 
     async def ingest_bundle(self, req: IngestInvestorBundleRequest) -> IngestInvestorBundleResponse:
+        client_uuid = _parse_uuid(req.client_id)
         async with self._pool.acquire() as conn:
             async with conn.transaction():
-                investor_id = await self._cross_ref_investor(conn, req.investor)
+                investor_id = await self._cross_ref_investor(conn, client_uuid, req.investor)
                 client_investor_id = await self._upsert_client_investor(
-                    conn, req.client_id, req.investor, investor_id
+                    conn, client_uuid, req.investor, investor_id
                 )
                 contacts_upserted = await self._upsert_contacts(
-                    conn, client_investor_id, req.contacts
+                    conn, client_uuid, client_investor_id, req.contacts
                 )
                 interactions_upserted = await self._upsert_interactions(
-                    conn, client_investor_id, req.interactions
+                    conn, client_uuid, client_investor_id, req.interactions
                 )
 
         return IngestInvestorBundleResponse(
             client_investor_id=str(client_investor_id),
             investor_id=str(investor_id) if investor_id else None,
-            needs_enrichment=(investor_id is None),
             contacts_upserted=contacts_upserted,
             interactions_upserted=interactions_upserted,
         )
 
     async def get_gap_investors(self, client_id: str, limit: int = 50) -> InvestorGapResponse:
+        client_uuid = _parse_uuid(client_id)
+        if client_uuid is None:
+            return InvestorGapResponse(client_id=client_id, gap_investors=[], total=0)
+
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT i.name, i.normalized_name, i.overall_score, i.investor_type
+                SELECT i.firm_name, i.overall_score, i.investor_type
                 FROM investors i
-                WHERE NOT EXISTS (
+                WHERE i.client_id = $1
+                  AND NOT EXISTS (
                     SELECT 1 FROM client_investors ci
                     WHERE ci.client_id = $1
-                      AND ci.normalized_name = i.normalized_name
-                )
+                      AND ci.firm_name ILIKE i.firm_name
+                  )
                 ORDER BY i.overall_score DESC NULLS LAST
                 LIMIT $2
                 """,
-                client_id,
+                client_uuid,
                 limit,
             )
         results = [InvestorGapResult(**dict(r)) for r in rows]
         return InvestorGapResponse(client_id=client_id, gap_investors=results, total=len(results))
 
+    async def get_client_investors(self, client_id: str) -> list[ClientInvestorRecord]:
+        """Return all investors in a client's tracker with their interaction history."""
+        client_uuid = _parse_uuid(client_id)
+        if client_uuid is None:
+            return []
+
+        async with self._pool.acquire() as conn:
+            investor_rows = await conn.fetch(
+                """
+                SELECT id, firm_name, investor_type, relationship_status
+                FROM client_investors
+                WHERE client_id = $1
+                ORDER BY firm_name
+                """,
+                client_uuid,
+            )
+            records = []
+            for row in investor_rows:
+                interaction_rows = await conn.fetch(
+                    """
+                    SELECT interaction_date, interaction_type, summary, outcome
+                    FROM investor_interactions
+                    WHERE client_investor_id = $1
+                    ORDER BY interaction_date DESC NULLS LAST
+                    LIMIT 10
+                    """,
+                    row["id"],
+                )
+                interactions = [
+                    InvestorInteractionBrief(
+                        date=ir["interaction_date"],
+                        event_type=ir["interaction_type"],
+                        summary=ir["summary"],
+                        outcome=ir["outcome"],
+                    )
+                    for ir in interaction_rows
+                ]
+                records.append(ClientInvestorRecord(
+                    firm_name=str(row["firm_name"]),
+                    investor_type=str(row["investor_type"] or "vc"),
+                    relationship_status=str(row["relationship_status"] or "new"),
+                    interactions=interactions,
+                ))
+        return records
+
     # ── Private helpers ────────────────────────────────────────────────────
 
     async def _cross_ref_investor(
-        self, conn: asyncpg.Connection, investor: IngestInvestorInput
+        self,
+        conn: asyncpg.Connection,
+        client_uuid: uuid.UUID | None,
+        investor: IngestInvestorInput,
     ) -> uuid.UUID | None:
+        if client_uuid is None:
+            return None
+
         row = await conn.fetchrow(
-            "SELECT id FROM investors WHERE normalized_name = $1",
-            investor.normalized_name,
+            "SELECT id FROM investors WHERE client_id = $1 AND firm_name ILIKE $2",
+            client_uuid,
+            investor.firm_name,
         )
         if row:
             return row["id"]
 
-        if investor.normalized_domain:
+        if investor.website:
             row = await conn.fetchrow(
-                "SELECT id FROM investors WHERE website ILIKE '%' || $1 || '%'",
-                investor.normalized_domain,
+                "SELECT id FROM investors WHERE client_id = $1 AND website ILIKE '%' || $2 || '%'",
+                client_uuid,
+                investor.website,
             )
             if row:
                 return row["id"]
@@ -90,58 +157,66 @@ class IngestService:
     async def _upsert_client_investor(
         self,
         conn: asyncpg.Connection,
-        client_id: str,
+        client_uuid: uuid.UUID | None,
         investor: IngestInvestorInput,
         investor_id: uuid.UUID | None,
     ) -> uuid.UUID:
+        if client_uuid is not None:
+            existing = await conn.fetchrow(
+                "SELECT id FROM client_investors WHERE client_id = $1 AND firm_name ILIKE $2 FOR UPDATE",
+                client_uuid,
+                investor.firm_name,
+            )
+        else:
+            existing = None
+
+        if existing:
+            row = await conn.fetchrow(
+                """
+                UPDATE client_investors SET
+                    investor_id         = COALESCE($1, investor_id),
+                    investor_name       = COALESCE($2, investor_name),
+                    investor_type       = $3,
+                    website             = COALESCE($4, website),
+                    relationship_status = COALESCE($5, relationship_status),
+                    notes               = COALESCE($6, notes)
+                WHERE id = $7
+                RETURNING id
+                """,
+                investor_id,
+                investor.investor_name,
+                investor.investor_type,
+                investor.website,
+                investor.relationship_status,
+                investor.notes,
+                existing["id"],
+            )
+            return row["id"]
+
         row = await conn.fetchrow(
             """
             INSERT INTO client_investors (
-                client_id, investor_id, investor_name, normalized_name, normalized_domain,
-                investor_type, status, needs_enrichment, reported_deal_size,
-                is_strategic, is_foundation, is_sovereign, is_crossover,
-                internal_owner, source_file, raw_notes
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-            ON CONFLICT (client_id, normalized_name) DO UPDATE SET
-                investor_id         = EXCLUDED.investor_id,
-                investor_name       = EXCLUDED.investor_name,
-                normalized_domain   = EXCLUDED.normalized_domain,
-                investor_type       = EXCLUDED.investor_type,
-                status              = EXCLUDED.status,
-                needs_enrichment    = EXCLUDED.needs_enrichment,
-                reported_deal_size  = EXCLUDED.reported_deal_size,
-                is_strategic        = EXCLUDED.is_strategic,
-                is_foundation       = EXCLUDED.is_foundation,
-                is_sovereign        = EXCLUDED.is_sovereign,
-                is_crossover        = EXCLUDED.is_crossover,
-                internal_owner      = EXCLUDED.internal_owner,
-                source_file         = EXCLUDED.source_file,
-                raw_notes           = EXCLUDED.raw_notes,
-                updated_at          = now()
+                client_id, investor_id, firm_name, investor_name,
+                investor_type, investor_source, website, relationship_status, notes
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING id
             """,
-            client_id,
+            client_uuid,
             investor_id,
+            investor.firm_name,
             investor.investor_name,
-            investor.normalized_name,
-            investor.normalized_domain,
             investor.investor_type,
-            investor.status,
-            investor_id is None,
-            investor.reported_deal_size,
-            investor.is_strategic,
-            investor.is_foundation,
-            investor.is_sovereign,
-            investor.is_crossover,
-            investor.internal_owner,
-            investor.source_file,
-            investor.raw_notes,
+            "client_provided",
+            investor.website,
+            investor.relationship_status,
+            investor.notes,
         )
         return row["id"]
 
     async def _upsert_contacts(
         self,
         conn: asyncpg.Connection,
+        client_uuid: uuid.UUID | None,
         client_investor_id: uuid.UUID,
         contacts: list[IngestContactInput],
     ) -> int:
@@ -155,10 +230,10 @@ class IngestService:
                 )
                 if existing:
                     continue
-            elif contact.name:
+            elif contact.full_name:
                 existing = await conn.fetchrow(
-                    "SELECT id FROM investor_contacts WHERE name = $1 AND client_investor_id = $2",
-                    contact.name,
+                    "SELECT id FROM investor_contacts WHERE full_name = $1 AND client_investor_id = $2",
+                    contact.full_name,
                     client_investor_id,
                 )
                 if existing:
@@ -166,14 +241,19 @@ class IngestService:
 
             await conn.execute(
                 """
-                INSERT INTO investor_contacts (client_investor_id, name, email, title, phone)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO investor_contacts (
+                    client_investor_id, client_id, full_name, first_name,
+                    last_name, email, title, linkedin_url
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 """,
                 client_investor_id,
-                contact.name,
+                client_uuid,
+                contact.full_name,
+                contact.first_name,
+                contact.last_name,
                 contact.email,
                 contact.title,
-                contact.phone,
+                contact.linkedin_url,
             )
             count += 1
         return count
@@ -181,39 +261,35 @@ class IngestService:
     async def _upsert_interactions(
         self,
         conn: asyncpg.Connection,
+        client_uuid: uuid.UUID | None,
         client_investor_id: uuid.UUID,
         interactions: list[IngestInteractionInput],
     ) -> int:
         count = 0
         for interaction in interactions:
-            segment_hash = (
-                hashlib.md5(interaction.raw_segment.encode()).hexdigest()
-                if interaction.raw_segment
-                else None
-            )
-            result = await conn.execute(
+            await conn.execute(
                 """
                 INSERT INTO investor_interactions (
-                    client_investor_id, event_date, event_type, summary,
-                    outcome, decline_reason, next_step, raw_segment, segment_hash
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-                ON CONFLICT (
-                    client_investor_id,
-                    COALESCE(event_date, '1900-01-01'::date),
-                    event_type,
-                    COALESCE(segment_hash, '')
-                ) DO NOTHING
+                    client_investor_id, client_id, interaction_date, interaction_type,
+                    summary, outcome, decline_reason, next_steps, raw_note_excerpt
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 """,
                 client_investor_id,
-                interaction.event_date,
-                interaction.event_type,
+                client_uuid,
+                interaction.interaction_date,
+                interaction.interaction_type,
                 interaction.summary,
                 interaction.outcome,
                 interaction.decline_reason,
-                interaction.next_step,
-                interaction.raw_segment,
-                segment_hash,
+                interaction.next_steps,
+                interaction.raw_note_excerpt,
             )
-            if result == "INSERT 0 1":
-                count += 1
+            count += 1
         return count
+
+
+def _parse_uuid(value: str) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(value)
+    except (ValueError, AttributeError):
+        return None

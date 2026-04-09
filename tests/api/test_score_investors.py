@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.config import get_settings
 from app.main import create_app
 from app.main_deps import get_llm_client
-from app.services.llm_client import LlmInvestorScore
+from app.services.llm_client import LlmInvestorScore, LlmRetryExhaustedError
 
 def test_score_investors_returns_batch_results(client) -> None:
     res = client.post(
@@ -19,19 +19,30 @@ def test_score_investors_returns_batch_results(client) -> None:
     body = res.json()
     assert body["success"] is True
     results = body["data"]["results"]
+    advisor_data = body["data"]["advisor_data"]
     assert results[0]["investor"]["name"] == "Firm A"
     assert results[1]["investor"]["name"] == "Firm B"
     assert results[0]["confidence"]["tier"] in {"HIGH", "MEDIUM", "LOW"}
-    # 6-axis breakdown fields
-    breakdown = results[0]["breakdown"]
+    # New client-facing score fields
+    assert isinstance(results[0]["composite_score"], int)
+    assert results[0]["investor_tier"] in {"Tier 1", "Tier 2", "Below Threshold"}
+    assert results[0]["investor_source"] in {"discovery", "client_provided"}
+    assert results[0]["narrative_summary"]
+    assert isinstance(results[0]["top_claims"], list)
+    assert results[0]["suggested_contact"]
+    # dimension_strengths present
+    ds = results[0]["dimension_strengths"]
+    assert ds["strategic_fit"] in {"High", "Medium", "Low"}
+    assert ds["stage_relevance"] in {"High", "Medium", "Low"}
+    # Advisor-internal data in advisor_data parallel list
+    assert len(advisor_data) == 2
+    assert advisor_data[0]["outreach_angle"]
+    breakdown = advisor_data[0]["full_axis_breakdown"]
     assert "thesis_alignment" in breakdown
     assert "stage_fit" in breakdown
     assert "check_size_fit" in breakdown
     assert "recency" in breakdown
     assert "geography" in breakdown
-    # New required response fields
-    assert results[0]["outreach_angle"]
-    assert results[0]["suggested_contact"]
 
 
 def test_score_investors_penalizes_missing_evidence(monkeypatch) -> None:
@@ -55,9 +66,12 @@ def test_score_investors_penalizes_missing_evidence(monkeypatch) -> None:
                 geography=50,
                 notes=None,
                 outreach_angle="Generic outreach.",
+                avoid=None,
                 suggested_contact="Partner",
                 evidence_urls=[],
                 confidence_score=0.8,
+                narrative_summary="Summary.",
+                top_claims=[],
             )
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
@@ -109,9 +123,64 @@ def test_score_investors_null_sci_reg_for_b2b_client(client) -> None:
         },
     )
     assert res.status_code == 200
-    result = res.json()["data"]["results"][0]
-    assert result["breakdown"]["scientific_regulatory_fit"] is None
-    assert result["overall_score"] > 0
+    body = res.json()
+    result = body["data"]["results"][0]
+    advisor = body["data"]["advisor_data"][0]
+    assert advisor["full_axis_breakdown"]["scientific_regulatory_fit"] is None
+    assert result["composite_score"] > 0
+
+
+def test_grant_type_skips_llm_and_returns_stub(client) -> None:
+    """Grant-type investors must be excluded from VC scoring and return a zero-score stub."""
+    res = client.post(
+        "/score-investors",
+        json={
+            "client": {"name": "NovaBio", "thesis": "Diagnostics"},
+            "investors": [
+                {"name": "NIH Grant", "investor_type": "grant"},
+                {"name": "Firm A"},
+            ],
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    results = body["data"]["results"]
+    advisor_data = body["data"]["advisor_data"]
+
+    grant_result = results[0]
+    assert grant_result["composite_score"] == 0
+    assert grant_result["investor_tier"] == "Below Threshold"
+    assert grant_result["confidence"]["tier"] == "LOW"
+    assert "grant" in grant_result["narrative_summary"].lower()
+
+    grant_advisor = advisor_data[0]
+    assert "[GRANT]" in grant_advisor["notes"]
+    assert grant_advisor["outreach_angle"] == ""
+
+    # Non-grant investor scores normally
+    assert results[1]["composite_score"] > 0
+
+
+def test_angel_type_caps_confidence_at_medium(client) -> None:
+    """Angel-type investors must be scored but confidence capped at MEDIUM."""
+    res = client.post(
+        "/score-investors",
+        json={
+            "client": {"name": "NovaBio", "thesis": "Diagnostics"},
+            "investors": [{"name": "Angel Investor", "investor_type": "angel"}],
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    result = body["data"]["results"][0]
+    advisor = body["data"]["advisor_data"][0]
+
+    # Should score (not a stub) but confidence must not be HIGH
+    assert result["composite_score"] > 0
+    assert result["confidence"]["tier"] != "HIGH"
+
+    # Angel flag must appear in advisor notes
+    assert "[ANGEL]" in advisor["notes"]
 
 
 def test_score_investors_null_scientific_regulatory_fit(monkeypatch) -> None:
@@ -135,9 +204,12 @@ def test_score_investors_null_scientific_regulatory_fit(monkeypatch) -> None:
                 geography=50,
                 notes=None,
                 outreach_angle="Outreach angle.",
+                avoid=None,
                 suggested_contact="Partner",
                 evidence_urls=["https://example.com/ev"],
                 confidence_score=0.9,
+                narrative_summary="Summary.",
+                top_claims=["Claim 1."],
             )
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
@@ -152,6 +224,32 @@ def test_score_investors_null_scientific_regulatory_fit(monkeypatch) -> None:
         json={"client": {"name": "Acme", "thesis": "Bio"}, "investors": [{"name": "Firm A"}]},
     )
     assert res.status_code == 200
-    result = res.json()["data"]["results"][0]
-    assert result["breakdown"]["scientific_regulatory_fit"] is None
-    assert result["overall_score"] > 0
+    body = res.json()
+    result = body["data"]["results"][0]
+    advisor = body["data"]["advisor_data"][0]
+    assert advisor["full_axis_breakdown"]["scientific_regulatory_fit"] is None
+    assert result["composite_score"] > 0
+
+
+def test_llm_retry_exhausted_returns_held_for_review(monkeypatch) -> None:
+    """When the LLM can't return valid JSON after retries, return held_for_review."""
+    class _BadJsonLlm:
+        async def score_investor(self, **kwargs) -> LlmInvestorScore:  # type: ignore[override]
+            raise LlmRetryExhaustedError(raw="not json at all { broken")
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+    get_settings.cache_clear()
+
+    app = create_app()
+    app.dependency_overrides[get_llm_client] = lambda: _BadJsonLlm()
+    test_client = TestClient(app)
+
+    res = test_client.post(
+        "/score-investors",
+        json={"client": {"name": "Acme", "thesis": "Bio"}, "investors": [{"name": "Firm A"}]},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "held_for_review"
+    assert "raw_output" in body["error"]["details"]

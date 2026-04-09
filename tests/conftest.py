@@ -9,6 +9,8 @@ from app.config import get_settings
 from app.main import create_app
 from app.main_deps import get_llm_client
 from app.services.llm_client import (
+    LlmAdvisorCallPlan,
+    LlmAdvisorPrep,
     LlmDigestResult,
     LlmGrantScore,
     LlmInvestorScore,
@@ -55,9 +57,12 @@ class _FakeLlmClient:
             geography=50,
             notes=f"Scored {investor_name} for {client_name}.",
             outreach_angle=f"Reach out to {investor_name} about thesis alignment.",
+            avoid=None,
             suggested_contact="Not identified",
             evidence_urls=evidence,
             confidence_score=0.9,
+            narrative_summary=f"Strong fit for {client_name}.",
+            top_claims=[f"Evidence supports {investor_name} thesis alignment."],
         )
 
     async def analyze_signal(
@@ -121,6 +126,9 @@ class _FakeLlmClient:
         investors: list[tuple[str, str | None]],
         market_context: str | None,
         x_signals: list[dict] | None,
+        therapeutic_area: str | None,
+        stage: str | None,
+        target_raise: str | None,
     ) -> LlmDigestResult:
         x_activity_signals: list[LlmXActivitySignal] = []
         if x_signals:
@@ -151,6 +159,18 @@ class _FakeLlmClient:
             x_activity_section=LlmXActivitySection(
                 signals=x_activity_signals,
                 section_note=x_note,
+            ),
+            advisor_prep=LlmAdvisorPrep(
+                key_insights=["Key insight for the week."],
+                outreach_angles=[],
+                call_plan=LlmAdvisorCallPlan(
+                    opening_framing="Frame the conversation around recent signals.",
+                    discussion_threads=["Funding environment", "Clinical milestones"],
+                    desired_outcome="Schedule introductory call.",
+                ),
+                likely_objections=[],
+                risks_sensitivities=[],
+                questions_to_ask=["What is your current deal pipeline?"],
             ),
         )
 

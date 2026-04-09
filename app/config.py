@@ -3,10 +3,10 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-DEFAULT_SCHEMA_VERSION = "2026-03-03"
+DEFAULT_SCHEMA_VERSION = "2026-04-14"
 
 
 class Settings(BaseSettings):
@@ -18,10 +18,10 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = Field(alias="ANTHROPIC_API_KEY")
 
-    request_timeout_seconds: float = Field(default=20.0, alias="REQUEST_TIMEOUT_SECONDS")
+    request_timeout_seconds: float = Field(default=60.0, alias="REQUEST_TIMEOUT_SECONDS")
 
     llm_model: str = Field(default="claude-sonnet-4-20250514", alias="LLM_MODEL")
-    llm_max_tokens: int = Field(default=1024, alias="LLM_MAX_TOKENS", ge=1, le=8192)
+    llm_max_tokens: int = Field(default=4096, alias="LLM_MAX_TOKENS", ge=1, le=8192)
 
     rate_limit_window_seconds: int = Field(default=60, alias="RATE_LIMIT_WINDOW_SECONDS")
     rate_limit_max_requests: int = Field(default=60, alias="RATE_LIMIT_MAX_REQUESTS")
@@ -37,7 +37,10 @@ class Settings(BaseSettings):
     score_weight_recency: float = Field(default=0.10, alias="SCORE_WEIGHT_RECENCY", ge=0.0, le=1.0)
     score_weight_geography: float = Field(default=0.05, alias="SCORE_WEIGHT_GEOGRAPHY", ge=0.0, le=1.0)
 
-    database_url: str = Field(default="", alias="DATABASE_URL")
+    database_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("SUPABASE_CONNECTION_STRING", "DATABASE_URL"),
+    )
 
     @model_validator(mode="after")
     def _validate_thresholds_and_weights(self) -> "Settings":
