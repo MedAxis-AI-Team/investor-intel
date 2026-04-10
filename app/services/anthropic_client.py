@@ -63,12 +63,25 @@ class AnthropicLlmClient(LlmClient):
                 if getattr(block, "type", None) == "text":
                     text += block.text
 
-            # Strip markdown code fences if the LLM wrapped its JSON output
+            # Extract JSON from the response, handling preamble and markdown fences
             text = text.strip()
             if text.startswith("```"):
-                text = text.split("\n", 1)[1]
+                text = text.split("\n", 1)[1] if "\n" in text else text[3:]
                 text = text.rsplit("```", 1)[0]
                 text = text.strip()
+
+            # If response has preamble before the JSON object/array, find it
+            if text and not text[0] in ("{", "["):
+                start = text.find("{")
+                arr_start = text.find("[")
+                if arr_start != -1 and (start == -1 or arr_start < start):
+                    start = arr_start
+                if start != -1:
+                    text = text[start:]
+                    # Trim any trailing non-JSON text after the closing brace/bracket
+                    end = text.rfind("}") if text[0] == "{" else text.rfind("]")
+                    if end != -1:
+                        text = text[: end + 1]
 
             if not text:
                 raise ValueError(
