@@ -28,7 +28,7 @@ services:
 
       # Optional tuning (defaults are in app/config.py)
       - key: REQUEST_TIMEOUT_SECONDS
-        value: "20"
+        value: "120"
       - key: RATE_LIMIT_WINDOW_SECONDS
         value: "60"
       - key: RATE_LIMIT_MAX_REQUESTS
