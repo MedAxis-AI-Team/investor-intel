@@ -36,4 +36,4 @@ services:
       - key: LLM_MODEL
         value: "claude-sonnet-4-20250514"
       - key: LLM_MAX_TOKENS
-        value: "4096"
+        value: "8192"
