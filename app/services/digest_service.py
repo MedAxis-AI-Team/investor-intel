@@ -40,7 +40,15 @@ class DigestService:
             target_raise=req.client.target_raise,
         )
 
-        sections = [DigestSection(title=title, bullets=bullets) for (title, bullets) in llm_result.sections]
+        # Filter sections with empty titles; DigestSection requires min_length=1 on title.
+        # DigestPayload requires at least 1 section, so fall back to a placeholder if all are empty.
+        sections = [
+            DigestSection(title=title, bullets=bullets)
+            for (title, bullets) in llm_result.sections
+            if title
+        ]
+        if not sections:
+            sections = [DigestSection(title="Weekly Summary", bullets=[])]
 
         x_activity_signals = [
             XActivitySignal(
@@ -83,9 +91,11 @@ class DigestService:
             for a in prep.outreach_angles
         ]
 
+        # discussion_threads requires min_length=1; guard against empty LLM output.
+        discussion_threads = list(prep.call_plan.discussion_threads) or ["Review investor thesis alignment"]
         call_plan = AdvisorCallPlan(
             opening_framing=prep.call_plan.opening_framing,
-            discussion_threads=list(prep.call_plan.discussion_threads),
+            discussion_threads=discussion_threads,
             desired_outcome=prep.call_plan.desired_outcome,
         )
 
@@ -94,8 +104,10 @@ class DigestService:
             for o in prep.likely_objections
         ]
 
+        # key_insights requires min_length=1; guard against empty LLM output.
+        key_insights = list(prep.key_insights) or ["Review this week's signals for investor outreach opportunities"]
         return AdvisorPrepPayload(
-            key_insights=list(prep.key_insights),
+            key_insights=key_insights,
             outreach_angles=outreach_angles,
             call_plan=call_plan,
             likely_objections=objections,
