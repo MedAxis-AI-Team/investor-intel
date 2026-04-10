@@ -455,7 +455,8 @@ class AnthropicLlmClient(LlmClient):
         client_raw = payload.get("client_digest") or payload
         sections = []
         for section in client_raw.get("sections", []):
-            sections.append((str(section["title"]), [str(b) for b in (section.get("bullets") or [])]))
+            title = section.get("title") or section.get("section_title") or section.get("heading") or ""
+            sections.append((str(title), [str(b) for b in (section.get("bullets") or [])]))
 
         x_section_raw = client_raw.get("x_activity_section") or {}
         x_activity_signals = []
