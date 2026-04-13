@@ -18,6 +18,7 @@ from app.models.score_investors import (
 from app.services._llm_normalizers import bucket_score, compute_investor_tier
 from app.services.confidence import ConfidencePolicy, penalize_for_missing_evidence, to_confidence
 from app.services.llm_client import LlmClient
+from app.services.scoring_config import build_scoring_instructions
 
 if TYPE_CHECKING:
     from app.services.ingest_service import ClientInvestorRecord
@@ -155,6 +156,11 @@ class ScoringService:
         investor_interactions: parallel to req.investors — interaction history from client tracker.
                                Defaults to empty lists when omitted.
         """
+        scoring_instructions = build_scoring_instructions(
+            req.client.client_profile,
+            list(req.client.modifiers),
+        )
+
         results: list[InvestorScore] = []
         advisor_data: list[InvestorAdvisorScore] = []
 
@@ -177,6 +183,7 @@ class ScoringService:
                 client_funding_target=req.client.funding_target,
                 investor_name=investor.name,
                 investor_notes=investor.notes,
+                scoring_instructions=scoring_instructions,
             )
 
             breakdown = InvestorScoreBreakdown(

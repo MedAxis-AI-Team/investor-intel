@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from app.services.scoring_config import ScoringInstructions
 
 
 class LlmRetryExhaustedError(Exception):
@@ -139,6 +142,7 @@ class LlmClient(Protocol):
         client_funding_target: str | None,
         investor_name: str,
         investor_notes: str | None,
+        scoring_instructions: ScoringInstructions | None = None,
     ) -> LlmInvestorScore:
         raise NotImplementedError
 

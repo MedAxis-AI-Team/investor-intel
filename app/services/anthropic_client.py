@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from anthropic import AsyncAnthropic
 
@@ -30,8 +31,44 @@ from app.services.llm_client import (
     LlmXActivitySection,
     LlmXActivitySignal,
 )
+from app.services.scoring_config import ScoringInstructions
 
 _MAX_JSON_RETRIES = 2
+_log = logging.getLogger(__name__)
+
+
+def _build_profile_section(instructions: ScoringInstructions | None) -> str:
+    """Build the CLIENT PROFILE prompt block from ScoringInstructions.
+
+    Returns an empty string for None (therapeutic default without explicit instructions).
+    The block is inserted before the SCORING AXES section so the LLM has full context
+    on thesis keywords, investor universe, and axis reframes before scoring.
+    """
+    if instructions is None:
+        return ""
+
+    lines: list[str] = [
+        f"\nCLIENT PROFILE: {instructions.profile_type}",
+        "PROFILE GUIDANCE:",
+    ]
+
+    if instructions.thesis_keywords:
+        keywords_str = ", ".join(instructions.thesis_keywords)
+        lines.append(f"- Thesis keywords: {keywords_str}")
+
+    lines.append(f"- Target investors: {instructions.investor_universe_hints}")
+    lines.append(f"- Stage fit: {instructions.stage_fit_guidance}")
+    lines.append(f"- Scientific/regulatory axis: {instructions.sci_reg_guidance}")
+
+    if instructions.modifier_keywords or instructions.modifier_guidance:
+        lines.append("\nMODIFIER GUIDANCE:")
+        if instructions.modifier_keywords:
+            mod_kw_str = ", ".join(instructions.modifier_keywords)
+            lines.append(f"- Additional keywords: {mod_kw_str}")
+        if instructions.modifier_guidance:
+            lines.append(instructions.modifier_guidance)
+
+    return "\n".join(lines) + "\n"
 
 
 class AnthropicLlmClient(LlmClient):
@@ -107,6 +144,7 @@ class AnthropicLlmClient(LlmClient):
         client_funding_target: str | None,
         investor_name: str,
         investor_notes: str | None,
+        scoring_instructions: ScoringInstructions | None = None,
     ) -> LlmInvestorScore:
         notes_section = (
             f"\nPerplexity-enriched thesis context (use this to improve thesis_alignment scoring):\n{investor_notes}"
@@ -115,6 +153,15 @@ class AnthropicLlmClient(LlmClient):
         )
         geography_section = f"\nClient geography: {client_geography}" if client_geography else ""
         funding_section = f"\nFunding target: {client_funding_target}" if client_funding_target else ""
+
+        profile_section = _build_profile_section(scoring_instructions)
+
+        if scoring_instructions is not None:
+            _log.debug(
+                "score_investor classifier_version=%s profile=%s",
+                scoring_instructions.classifier_version,
+                scoring_instructions.profile_type,
+            )
 
         payload = await self._json_call(
             system="You are a strict JSON-only scoring engine for biotech investor matching. Output ONLY valid JSON.",
@@ -125,8 +172,9 @@ class AnthropicLlmClient(LlmClient):
                 f"{geography_section}"
                 f"{funding_section}"
                 f"\nInvestor: {investor_name}"
-                f"{notes_section}\n\n"
-                "SCORING AXES (0-100 each):\n"
+                f"{notes_section}\n"
+                f"{profile_section}"
+                "\nSCORING AXES (0-100 each):\n"
                 "  thesis_alignment (30%): How well the investor's focus matches the client thesis\n"
                 "  stage_fit (25%): How well the investor's typical stage matches the client\n"
                 "  check_size_fit (15%): How well the investor's typical check size matches funding target\n"
@@ -158,6 +206,15 @@ class AnthropicLlmClient(LlmClient):
             ),
         )
 
+        # Determine whether to score the scientific_regulatory_fit axis.
+        # If scoring_instructions explicitly enables it, always score.
+        # Otherwise, fall back to needs_sci_reg() which reads FDA terms from the thesis.
+        score_sci_reg = (
+            scoring_instructions.score_scientific_regulatory
+            if scoring_instructions is not None
+            else needs_sci_reg(client_thesis)
+        )
+
         top_claims_raw = payload.get("top_claims") or []
         return LlmInvestorScore(
             thesis_alignment=int(payload["thesis_alignment"]),
@@ -165,7 +222,7 @@ class AnthropicLlmClient(LlmClient):
             check_size_fit=int(payload["check_size_fit"]),
             scientific_regulatory_fit=(
                 (payload.get("scientific_regulatory_fit") and int(payload["scientific_regulatory_fit"]))
-                if needs_sci_reg(client_thesis)
+                if score_sci_reg
                 else None
             ),
             recency=int(payload["recency"]),

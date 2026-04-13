@@ -23,6 +23,17 @@ InvestorTier = Literal["Tier 1", "Tier 2", "Below Threshold"]
 DimensionLevel = Literal["High", "Medium", "Low"]
 InvestorType = Literal["vc", "cvc", "angel", "family_office", "grant", "accelerator", "other"]
 
+ClientProfileType = Literal[
+    "therapeutic",
+    "medical_device",
+    "diagnostics",
+    "digital_health",
+    "service_cro",
+    "platform_tools",
+]
+
+ScoringModifier = Literal["ai_enabled", "rpm_saas", "cross_border_ca", "ruo_no_reg"]
+
 
 class ClientProfile(BaseModel):
     name: str = Field(min_length=1, max_length=200)
@@ -30,6 +41,8 @@ class ClientProfile(BaseModel):
     geography: str | None = Field(default=None, max_length=200)
     funding_target: str | None = Field(default=None, max_length=50)
     competitor_watchlist: list[str] = Field(default_factory=list, max_length=10)
+    client_profile: ClientProfileType = "therapeutic"
+    modifiers: list[ScoringModifier] = Field(default_factory=list)
 
 
 class InvestorInput(BaseModel):
