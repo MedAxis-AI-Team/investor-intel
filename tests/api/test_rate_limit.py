@@ -26,6 +26,7 @@ class _LocalFakeLlmClient:
         client_funding_target: str | None,
         investor_name: str,
         investor_notes: str | None,
+        scoring_instructions=None,
     ) -> LlmInvestorScore:
         return LlmInvestorScore(
             thesis_alignment=80,

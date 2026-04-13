@@ -33,6 +33,8 @@ VALID_X_SIGNAL_TYPE = {
 VALID_SOURCE = {"discovery", "client_provided"}
 VALID_BUCKET = {"High", "Medium", "Low"}
 VALID_GRANT_CONFIDENCE = {"high", "medium", "low"}
+VALID_WINDOW = {"immediate", "this_week", "monitor"}
+VALID_PRIORITY_LOWER = {"high", "medium", "low"}
 
 CSV_FIELDS = [
     "run_id", "timestamp", "scenario_id", "endpoint",
@@ -74,7 +76,7 @@ class BenchmarkRun:
         self.base_url = base_url.rstrip("/")
         self.run_id = run_id
         self.rows: list[dict] = []
-        self.client = httpx.Client(timeout=90.0)
+        self.client = httpx.Client(timeout=120.0)
 
     def _row(
         self,
@@ -220,13 +222,33 @@ class BenchmarkRun:
                           "dimension_strengths.scientific_depth", "null (no FDA keyword)", sci,
                           sci is None, "needs_sci_reg()=False for non-FDA thesis")
 
-            # advisor_data outreach_angle
+            # advisor_data outreach_angle + full_axis_breakdown
             advisor = advisor_by_name.get(investor_name)
             if advisor:
                 angle = advisor.get("outreach_angle")
                 self._row(scenario_id, ep, investor_name, "nonempty.advisor_data.outreach_angle",
                           "advisor_data.outreach_angle", "non-empty string", angle,
                           bool(angle and isinstance(angle, str)))
+
+                fab = advisor.get("full_axis_breakdown") or {}
+                for axis in ("thesis_alignment", "stage_fit", "check_size_fit", "recency", "geography"):
+                    val = fab.get(axis)
+                    self._row(scenario_id, ep, investor_name, f"range.advisor_data.full_axis_breakdown.{axis}",
+                              f"full_axis_breakdown.{axis}", "int 0-100", val,
+                              isinstance(val, (int, float)) and 0 <= val <= 100)
+
+                sci_fit = fab.get("scientific_regulatory_fit")
+                if scenario_id == "score_investors_diagnostics_no_fda":
+                    self._row(scenario_id, ep, investor_name,
+                              "null.advisor_data.full_axis_breakdown.scientific_regulatory_fit",
+                              "full_axis_breakdown.scientific_regulatory_fit", "null (no FDA keyword)", sci_fit,
+                              sci_fit is None, "needs_sci_reg()=False")
+                else:
+                    self._row(scenario_id, ep, investor_name,
+                              "range.advisor_data.full_axis_breakdown.scientific_regulatory_fit",
+                              "full_axis_breakdown.scientific_regulatory_fit", "int 0-100", sci_fit,
+                              isinstance(sci_fit, (int, float)) and 0 <= sci_fit <= 100,
+                              "FDA thesis — should be scored")
             else:
                 self._row(scenario_id, ep, investor_name, "nonempty.advisor_data.outreach_angle",
                           "advisor_data.outreach_angle", "non-empty string", "MISSING",
@@ -268,6 +290,18 @@ class BenchmarkRun:
         self._row(scenario_id, ep, "signal", "enum.confidence.tier",
                   "analysis.confidence.tier", f"∈ {VALID_CONFIDENCE}", conf_tier,
                   conf_tier in VALID_CONFIDENCE)
+
+        # rationale
+        rationale = analysis.get("rationale")
+        self._row(scenario_id, ep, "signal", "nonempty.analysis.rationale",
+                  "analysis.rationale", "non-empty string", rationale,
+                  bool(rationale and isinstance(rationale, str)))
+
+        # expires_relevance (computed field — should be a date string)
+        expires = analysis.get("expires_relevance")
+        self._row(scenario_id, ep, "signal", "nonempty.analysis.expires_relevance",
+                  "analysis.expires_relevance", "non-empty string", expires,
+                  bool(expires and isinstance(expires, str)))
 
         # briefing fields
         briefing = analysis.get("briefing") or {}
@@ -354,6 +388,79 @@ class BenchmarkRun:
                   "call_plan.discussion_threads", "1-5 items", len(threads),
                   1 <= len(threads) <= 5)
 
+        # client_digest preheader
+        preheader = client_digest.get("preheader")
+        self._row(scenario_id, ep, "client_digest", "nonempty.client_digest.preheader",
+                  "client_digest.preheader", "non-empty string", preheader,
+                  bool(preheader and isinstance(preheader, str)))
+
+        # call_plan desired_outcome
+        desired = call_plan.get("desired_outcome") if isinstance(call_plan, dict) else None
+        self._row(scenario_id, ep, "internal_digest", "nonempty.internal_digest.call_plan.desired_outcome",
+                  "call_plan.desired_outcome", "non-empty string", desired,
+                  bool(desired and isinstance(desired, str)))
+
+        # x_activity_section per-signal enum checks (only when signals are present)
+        for i, sig in enumerate(x_signals_out):
+            sig_entity = f"x_signal_{i}"
+            sig_data = sig if isinstance(sig, dict) else {}
+
+            x_t = sig_data.get("x_signal_type")
+            self._row(scenario_id, ep, sig_entity, "enum.x_signal_type",
+                      "x_activity_section.signals[].x_signal_type", f"∈ {VALID_X_SIGNAL_TYPE}", x_t,
+                      x_t in VALID_X_SIGNAL_TYPE)
+
+            window = sig_data.get("window")
+            self._row(scenario_id, ep, sig_entity, "enum.window",
+                      "x_activity_section.signals[].window", f"∈ {VALID_WINDOW}", window,
+                      window in VALID_WINDOW)
+
+            priority = sig_data.get("priority")
+            self._row(scenario_id, ep, sig_entity, "enum.priority",
+                      "x_activity_section.signals[].priority", f"∈ {VALID_PRIORITY_LOWER}", priority,
+                      priority in VALID_PRIORITY_LOWER)
+
+            sig_summary = sig_data.get("signal_summary")
+            self._row(scenario_id, ep, sig_entity, "nonempty.signal_summary",
+                      "x_activity_section.signals[].signal_summary", "non-empty string", sig_summary,
+                      bool(sig_summary and isinstance(sig_summary, str)))
+
+            action = sig_data.get("recommended_action")
+            self._row(scenario_id, ep, sig_entity, "nonempty.recommended_action",
+                      "x_activity_section.signals[].recommended_action", "non-empty string", action,
+                      bool(action and isinstance(action, str)))
+
+        # internal_digest: likely_objections
+        objections = internal_digest.get("likely_objections") or []
+        self._row(scenario_id, ep, "internal_digest", "count.internal_digest.likely_objections",
+                  "internal_digest.likely_objections", "≥ 1", len(objections), len(objections) >= 1)
+        if objections:
+            first_obj = objections[0] if isinstance(objections[0], dict) else {}
+            self._row(scenario_id, ep, "internal_digest", "nonempty.internal_digest.likely_objections[0].objection",
+                      "likely_objections[0].objection", "non-empty string", first_obj.get("objection"),
+                      bool(first_obj.get("objection") and isinstance(first_obj.get("objection"), str)))
+
+        # internal_digest: risks_sensitivities + questions_to_ask (presence check)
+        risks = internal_digest.get("risks_sensitivities")
+        self._row(scenario_id, ep, "internal_digest", "count.internal_digest.risks_sensitivities",
+                  "internal_digest.risks_sensitivities", "list", len(risks) if isinstance(risks, list) else -1,
+                  isinstance(risks, list))
+
+        questions = internal_digest.get("questions_to_ask")
+        self._row(scenario_id, ep, "internal_digest", "count.internal_digest.questions_to_ask",
+                  "internal_digest.questions_to_ask", "list", len(questions) if isinstance(questions, list) else -1,
+                  isinstance(questions, list))
+
+        # internal_digest: first outreach_angle fields
+        if outreach_angles:
+            first_ang = outreach_angles[0] if isinstance(outreach_angles[0], dict) else {}
+            self._row(scenario_id, ep, "internal_digest", "nonempty.internal_digest.outreach_angles[0].angle",
+                      "outreach_angles[0].angle", "non-empty string", first_ang.get("angle"),
+                      bool(first_ang.get("angle") and isinstance(first_ang.get("angle"), str)))
+            self._row(scenario_id, ep, "internal_digest", "nonempty.internal_digest.outreach_angles[0].avoid",
+                      "outreach_angles[0].avoid", "non-empty string", first_ang.get("avoid"),
+                      bool(first_ang.get("avoid") and isinstance(first_ang.get("avoid"), str)))
+
     # ------------------------------------------------------------------
     # S6 — /score-grants
     # ------------------------------------------------------------------
@@ -372,6 +479,15 @@ class BenchmarkRun:
 
         data = body.get("data", {})
         scored_grants = data.get("scored_grants") or []
+
+        # response-level checks
+        self._row(scenario_id, ep, "response", "count.scored_grants",
+                  "scored_grants", "≥ 1", len(scored_grants), len(scored_grants) >= 1)
+
+        response_summary = data.get("summary")
+        self._row(scenario_id, ep, "response", "nonempty.scored_grants_summary",
+                  "data.summary", "non-empty string", response_summary,
+                  bool(response_summary and isinstance(response_summary, str)))
 
         for i, grant in enumerate(scored_grants):
             entity = f"grant_{i}"

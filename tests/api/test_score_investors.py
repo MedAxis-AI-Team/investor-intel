@@ -56,6 +56,7 @@ def test_score_investors_penalizes_missing_evidence(monkeypatch) -> None:
             client_funding_target: str | None,
             investor_name: str,
             investor_notes: str | None,
+            scoring_instructions=None,
         ) -> LlmInvestorScore:
             return LlmInvestorScore(
                 thesis_alignment=80,
@@ -194,6 +195,7 @@ def test_score_investors_null_scientific_regulatory_fit(monkeypatch) -> None:
             client_funding_target: str | None,
             investor_name: str,
             investor_notes: str | None,
+            scoring_instructions=None,
         ) -> LlmInvestorScore:
             return LlmInvestorScore(
                 thesis_alignment=80,
@@ -229,6 +231,83 @@ def test_score_investors_null_scientific_regulatory_fit(monkeypatch) -> None:
     advisor = body["data"]["advisor_data"][0]
     assert advisor["full_axis_breakdown"]["scientific_regulatory_fit"] is None
     assert result["composite_score"] > 0
+
+
+def test_digital_health_profile_scores_sci_reg(client) -> None:
+    """digital_health profile must produce non-null scientific_regulatory_fit (tech differentiation axis)."""
+    res = client.post(
+        "/score-investors",
+        json={
+            "client": {
+                "name": "Predictive Healthcare",
+                "thesis": (
+                    "AI-enabled remote patient monitoring SaaS platform. "
+                    "Targets chronic disease management for health systems."
+                ),
+                "client_profile": "digital_health",
+                "modifiers": ["ai_enabled", "rpm_saas"],
+            },
+            "investors": [{"name": "General Catalyst"}, {"name": "7wireVentures"}],
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    results = body["data"]["results"]
+    advisor_data = body["data"]["advisor_data"]
+    assert len(results) == 2
+    # digital_health always scores scientific_regulatory_fit (tech differentiation)
+    for advisor in advisor_data:
+        assert advisor["full_axis_breakdown"]["scientific_regulatory_fit"] is not None
+    # Sanity-check standard response structure
+    assert results[0]["investor_tier"] in {"Tier 1", "Tier 2", "Below Threshold"}
+    assert results[0]["composite_score"] > 0
+
+
+def test_medical_device_profile_scores_sci_reg(client) -> None:
+    """medical_device profile must produce non-null scientific_regulatory_fit (device pathway axis)."""
+    res = client.post(
+        "/score-investors",
+        json={
+            "client": {
+                "name": "Crimson Scientific",
+                "thesis": (
+                    "Reusable wireless EKG device. FDA Class II, 510(k) exempt pathway. "
+                    "Targeting hospital bedside monitoring."
+                ),
+                "client_profile": "medical_device",
+                "modifiers": [],
+            },
+            "investors": [{"name": "Vensana Capital"}],
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    advisor = body["data"]["advisor_data"][0]
+    # medical_device always scores scientific_regulatory_fit (device pathway alignment)
+    assert advisor["full_axis_breakdown"]["scientific_regulatory_fit"] is not None
+    assert body["data"]["results"][0]["composite_score"] > 0
+
+
+def test_therapeutic_default_preserves_existing_behavior(client) -> None:
+    """No client_profile field must default to therapeutic and preserve existing behavior."""
+    res = client.post(
+        "/score-investors",
+        json={
+            "client": {
+                "name": "NovaBio",
+                "thesis": "B2B diagnostics platform. No FDA pathway.",
+            },
+            "investors": [{"name": "Firm A"}],
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    # therapeutic + no FDA terms in thesis → scientific_regulatory_fit is null
+    advisor = body["data"]["advisor_data"][0]
+    assert advisor["full_axis_breakdown"]["scientific_regulatory_fit"] is None
 
 
 def test_llm_retry_exhausted_returns_held_for_review(monkeypatch) -> None:

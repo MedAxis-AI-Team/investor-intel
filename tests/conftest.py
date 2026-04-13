@@ -44,9 +44,15 @@ class _FakeLlmClient:
         client_funding_target: str | None,
         investor_name: str,
         investor_notes: str | None,
+        scoring_instructions=None,
     ) -> LlmInvestorScore:
         from app.services._llm_normalizers import needs_sci_reg
-        _has_fda = needs_sci_reg(client_thesis)
+        # If scoring_instructions explicitly enables sci_reg scoring, always include it.
+        # Otherwise fall back to thesis-text detection.
+        if scoring_instructions is not None and scoring_instructions.score_scientific_regulatory:
+            _has_fda = True
+        else:
+            _has_fda = needs_sci_reg(client_thesis)
         evidence = [f"https://example.com/{investor_name.replace(' ', '-').lower()}"]
         return LlmInvestorScore(
             thesis_alignment=80,
