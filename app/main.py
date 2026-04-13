@@ -43,7 +43,16 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Investor Intelligence API",
-        version="0.1.0",
+        version="0.2.0",
+        summary="LLM-powered investor intelligence for MedAxis advisory workflows.",
+        description=(
+            "Stateless FastAPI service called from N8N workflows. "
+            "Handles investor scoring (6-axis weighted model with profile-aware prompt branching), "
+            "signal analysis (SEC, news, X/Grok), weekly digest generation, grant scoring, "
+            "and client investor ingestion. "
+            "All endpoints return `ApiResponse[T]` with `success`, `request_id`, `data`, and `error` fields. "
+            "Auth is handled upstream by N8N — no API key required on these endpoints."
+        ),
         docs_url="/",
         lifespan=lifespan,
     )
