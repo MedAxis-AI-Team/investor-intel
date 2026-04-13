@@ -12,13 +12,20 @@ from app.models.ingest_investor import (
 )
 from app.services.ingest_service import IngestService
 
-router = APIRouter(prefix="/ingest", tags=["ingestion"])
+router = APIRouter(prefix="/ingest", tags=["Ingestion"])
 
 
 @router.post(
     "/investor-bundle",
     response_model=ApiResponse[IngestInvestorBundleResponse],
     dependencies=[Depends(rate_limit("ingest-bundle"))],
+    summary="Ingest a client investor entry from their tracker",
+    description=(
+        "Atomically upserts an investor + contacts + interactions into the client pipeline "
+        "(`client_investors`, `investor_contacts`, `investor_interactions`). "
+        "Cross-references the core `investors` table by firm name or website. "
+        "Requires `SUPABASE_CONNECTION_STRING` — returns 503 when DB is unavailable."
+    ),
 )
 async def ingest_investor_bundle(
     request: Request,
@@ -37,6 +44,12 @@ async def ingest_investor_bundle(
     "/investor-gap/{client_id}",
     response_model=ApiResponse[InvestorGapResponse],
     dependencies=[Depends(rate_limit("ingest-gap"))],
+    summary="Return investors not yet in a client's pipeline",
+    description=(
+        "Queries the core `investors` table for firms not already tracked by the given client. "
+        "Useful for discovery gap analysis. `limit` defaults to 50, max 200. "
+        "Requires `SUPABASE_CONNECTION_STRING`."
+    ),
 )
 async def investor_gap(
     client_id: str,

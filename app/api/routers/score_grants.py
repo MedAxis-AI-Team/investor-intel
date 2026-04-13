@@ -8,13 +8,20 @@ from app.models.common import ApiResponse
 from app.models.score_grants import ScoreGrantsRequest, ScoreGrantsResponse
 from app.services.grant_scoring_service import GrantScoringService
 
-router = APIRouter(prefix="", tags=["phase-three"])
+router = APIRouter(prefix="", tags=["Grant Scoring"])
 
 
 @router.post(
     "/score-grants",
     response_model=ApiResponse[ScoreGrantsResponse],
     dependencies=[Depends(rate_limit("score-grants"))],
+    summary="Score grant opportunities against a company profile",
+    description=(
+        "Evaluates one or more grant opportunities (NIH, NSF, SBIR/STTR, etc.) against "
+        "a company's therapeutic area, stage, and FDA pathway. "
+        "Returns per-grant scores across therapeutic match, stage eligibility, "
+        "award size relevance, deadline feasibility, and historical funding alignment."
+    ),
 )
 async def score_grants(
     request: Request,

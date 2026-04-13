@@ -29,8 +29,8 @@ Docs UI at `/` (root). Health check at `/health`.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `GET` | `/health` | none | Health check |
-| `POST` | `/score-investors` | rate limited | 6-axis investor scoring. Returns dual DTO: `results[]` (client-facing: `composite_score`, `investor_tier`, `dimension_strengths`, `top_claims`) + `advisor_data[]` (internal: `outreach_angle`, `full_axis_breakdown`). |
+| `GET` | `/health` | none | Service status, API version, scoring classifier version, DB connectivity |
+| `POST` | `/score-investors` | rate limited | 6-axis investor scoring with profile-aware prompt branching. Accepts `client_profile` + `modifiers`. Returns dual DTO: `results[]` (client-facing: `composite_score`, `investor_tier`, `dimension_strengths`, `top_claims`) + `advisor_data[]` (internal: `outreach_angle`, `full_axis_breakdown`). |
 | `POST` | `/analyze-signal` | rate limited | Signal analysis (news, events, X/Grok posts). X_GROK source returns `x_signal_type`. |
 | `POST` | `/generate-digest` | rate limited | Investor digest. Returns `client_digest` (email sections + `x_activity_section`) and `internal_digest` (advisor prep: `key_insights`, `call_plan`, `outreach_angles`, `likely_objections`). |
 | `POST` | `/score-grants` | rate limited | Grant opportunity scoring |
@@ -41,19 +41,38 @@ No API key required — N8N handles auth upstream.
 
 ### Example: score investors
 
+`client_profile` defaults to `"therapeutic"` if omitted. Supported profiles: `therapeutic`, `medical_device`, `diagnostics`, `digital_health`, `service_cro`, `platform_tools`. Supported modifiers: `ai_enabled`, `rpm_saas`, `cross_border_ca`, `ruo_no_reg`.
+
 ```bash
+# Therapeutic (default)
 curl -X POST http://localhost:8000/score-investors \
   -H "Content-Type: application/json" \
   -d '{
     "client": {
       "name": "NovaBio Therapeutics",
-      "thesis": "CAR-T cell therapies for solid tumors",
+      "thesis": "CAR-T cell therapies for solid tumors. FDA IND filed.",
       "geography": "US",
       "funding_target": "$15M Series A"
     },
     "investors": [
       { "name": "OrbiMed Advisors", "notes": "Healthcare VC, $23B+ AUM" },
       { "name": "Sequoia Capital", "notes": "Generalist VC" }
+    ]
+  }'
+
+# Digital health with modifiers
+curl -X POST http://localhost:8000/score-investors \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client": {
+      "name": "Predictive Healthcare",
+      "thesis": "AI-enabled remote patient monitoring SaaS for chronic disease management.",
+      "client_profile": "digital_health",
+      "modifiers": ["ai_enabled", "rpm_saas"]
+    },
+    "investors": [
+      { "name": "General Catalyst" },
+      { "name": "7wireVentures" }
     ]
   }'
 ```

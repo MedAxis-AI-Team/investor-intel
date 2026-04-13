@@ -9,13 +9,23 @@ from app.models.score_investors import InvestorInteractionBrief, ScoreInvestorsR
 from app.services.ingest_service import IngestService
 from app.services.scoring_service import ScoringService
 
-router = APIRouter(prefix="", tags=["phase-one"])
+router = APIRouter(prefix="", tags=["Investor Scoring"])
 
 
 @router.post(
     "/score-investors",
     response_model=ApiResponse[ScoreInvestorsResponse],
     dependencies=[Depends(rate_limit("score-investors"))],
+    summary="Score a list of investors against a client profile",
+    description=(
+        "Runs 6-axis weighted scoring (thesis alignment, stage fit, check size, "
+        "scientific/regulatory fit, recency, geography) for each investor. "
+        "Accepts `client_profile` (`therapeutic`, `medical_device`, `diagnostics`, "
+        "`digital_health`, `service_cro`, `platform_tools`) and optional `modifiers` "
+        "(`ai_enabled`, `rpm_saas`, `cross_border_ca`, `ruo_no_reg`) to branch the scoring prompt. "
+        "Returns a dual DTO: `results[]` (client-facing composite score, tier, dimension strengths) "
+        "and `advisor_data[]` (internal axis breakdown, outreach angle, avoid notes)."
+    ),
 )
 async def score_investors(
     request: Request,
