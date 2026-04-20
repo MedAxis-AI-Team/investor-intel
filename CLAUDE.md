@@ -34,13 +34,18 @@ source venv/bin/activate && coverage run -m pytest && coverage report -m        
 - `app/api/deps.py` — Rate limiting (in-memory fixed window per IP). No API key auth (N8N handles upstream).
 - `app/api/routers/` — One router per endpoint: `score_investors`, `analyze_signal`, `generate_digest`, `score_grants`, `health`, `ingest_investor`.
 - `app/services/llm_client.py` — `LlmClient` Protocol + frozen dataclasses for LLM return types. All services depend on this abstraction.
-- `app/services/anthropic_client.py` — Concrete `AnthropicLlmClient`. Sends structured prompts, parses raw JSON from Claude responses.
-- `app/services/_llm_normalizers.py` — All LLM output normalization: enum lookup tables, expiry computation, FDA detection, contact enforcement. Extracted from `anthropic_client.py` per 600-line file limit.
+- `app/services/anthropic_client.py` — Concrete `AnthropicLlmClient`. Sends structured prompts, parses raw JSON from Claude responses. `_build_profile_section()` injects `CLIENT PROFILE / PROFILE GUIDANCE / MODIFIER GUIDANCE` block from `ScoringInstructions`.
+- `app/services/scoring_config.py` — `ScoringInstructions` frozen dataclass + `_PROFILE_CONFIGS` / `_MODIFIER_CONFIGS` lookup dicts + `build_scoring_instructions()`. Translates `client_profile` + `modifiers` into the config object that drives prompt construction. No if/else chains. Phase 1.5 compatible.
+- `app/services/_llm_normalizers.py` — All LLM output normalization: enum lookup tables, expiry computation, FDA detection (`needs_sci_reg()`), contact enforcement. Extracted from `anthropic_client.py` per 600-line file limit.
 - `app/services/` — Business logic: `scoring_service` (6-axis weighted scoring + confidence), `signal_service` (includes X/Grok signal analysis), `digest_service` (includes X activity section), `grant_scoring_service`.
 - `app/services/ingest_service.py` — `IngestService(pool: asyncpg.Pool)`. Transactional 3-table upsert for client investor ingestion. `get_client_investors(client_id)` returns investor + interaction history for `/score-investors` consolidation. No LLM dependency.
 - `app/models/` — Pydantic request/response models. `common.py` has `ApiResponse[T]` generic wrapper used by all endpoints. `ingest_investor.py` has ingestion models.
 
 **Scoring model (6-axis):** thesis_alignment 30%, stage_fit 25%, check_size_fit 15%, scientific_regulatory_fit 15%, recency 10%, geography 5%. When scientific_regulatory_fit is null, its weight redistributes to thesis_alignment.
+
+**Profile-aware scoring (`client_profile` + `modifiers`):** `ClientProfile` accepts `client_profile` (Literal enum, default `"therapeutic"`) and `modifiers` (list of modifier strings, default `[]`). `build_scoring_instructions()` translates these into a `ScoringInstructions` config object that branches the prompt without if/else chains. Profiles: `therapeutic` (default, preserves all existing behavior), `medical_device`, `diagnostics`, `digital_health`, `service_cro`, `platform_tools`. Modifiers (additive): `ai_enabled`, `rpm_saas`, `cross_border_ca`, `ruo_no_reg`. Non-therapeutic profiles set `score_scientific_regulatory=True`, which overrides `needs_sci_reg()` and always scores the axis (reframed per profile — device pathway, tech differentiation, etc.). The `_CLASSIFIER_VERSION` string (`"1.0.0-phase1"`) is logged with every run and returned by `/health` as `scoring_classifier`. See [ADR-002](docs/adr/002-profile-aware-scoring-config.md).
+
+**Signal ↔ Score pipeline separation (intentional, Layer 0):** `/analyze-signal` and `/score-investors` are decoupled pipelines. Signals shape the Brief (digest narrative, advisor prep) via `/generate-digest`. They do not modify composite investor scores. Live signal → score integration (recency/sci_reg weight adjustments from FDA clearances, SEC filings) is a post-Layer 0 design decision.
 
 **Dual DTO pattern (`/score-investors`):** Response includes two parallel lists:
 - `results: list[InvestorScore]` — client-facing: `composite_score`, `investor_tier`, `investor_source`, `dimension_strengths`, `narrative_summary`, `top_claims`, `interactions`, `confidence`, `suggested_contact`, `evidence_urls`.
@@ -76,7 +81,7 @@ Bucketing: raw ≥70 → "High" · ≥45 → "Medium" · <45 → "Low". Implemen
 
 **Ingestion layer:** `POST /ingest/investor-bundle` accepts a client's existing investor tracker entry (investor + contacts + interactions) and writes atomically to `client_investors`, `investor_contacts`, `investor_interactions` via a single Postgres transaction. Cross-references against the core `investors` table by firm_name (ILIKE) then website within the same client's scope — `investor_id` is null when no match. `GET /ingest/investor-gap/{client_id}` returns investors in the core table not yet in the client's pipeline. `client_id` must be a valid UUID. DB layer requires `SUPABASE_CONNECTION_STRING` env var (Supabase Session Pooler, port 5432). Omitting it disables the ingest endpoints with 503. Tables: `client_investors`, `investor_contacts`, `investor_interactions`, `ingestion_errors` (dead-letter, written by n8n directly, not the bundle endpoint). Migration `migrations/001_client_investor_ingestion.sql` is reference only — live schema may differ.
 
-**Deployment:** Render (see `render.yaml`). Health check at `/health`. Docs UI at `/` (root).
+**Deployment:** Render (see `render.yaml`). `autoDeploy: true` on main branch. Health check at `/health` — returns `status`, `version`, `scoring_classifier`, `db`. Docs UI at `/` (root). Current deployed version: `0.2.0`.
 
 **Agents** (`.claude/agents/`): `code-reviewer` (post-edit review), `security-reviewer` (pre-commit security), `tdd-guide` (test-driven dev), `planner` (implementation planning), `build-error-resolver` (fix build failures), `issue-triager` (priority triage on changes), `git-workflow` (branch/commit/PR/merge lifecycle), `llm-contract-validator` (validates LLM output fields have code enforcement).
 
@@ -102,6 +107,9 @@ Bucketing: raw ≥70 → "High" · ≥45 → "Medium" · <45 → "Low". Implemen
 ## Tracking
 
 - **ADRs:** `.claude/docs/adr/` — Architectural Decision Records
+  - `001-stateless-llm-api.md` — Core stateless FastAPI + Protocol pattern
+  - `002-profile-aware-scoring-config.md` — client_profile + modifiers, ScoringInstructions, Phase 1.5 compat
 - **Tasks:** `.claude/docs/tasks/` — Implementation task tracking
+  - `layer0-status.md` — Full Layer 0 build-out: shipped vs. pending (updated 2026-04-20)
 - **Decisions:** `.claude/docs/decisions/` — Session decision log
 - **Git changelog:** Use `/git-log` command to generate change summaries
