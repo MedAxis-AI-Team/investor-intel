@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TypeVar
 
 from fastapi import Depends, Request, Response, status
 from fastapi import HTTPException
 
 from app.config import Settings, get_settings
 from app.infra.rate_limit import InMemoryFixedWindowRateLimiter, RateLimitConfig
+from app.models.common import ApiResponse
+
+T = TypeVar("T")
+
+
+def ok(request: Request, data: T) -> ApiResponse[T]:
+    """Wrap a successful service result in the standard ApiResponse envelope."""
+    return ApiResponse(success=True, request_id=getattr(request.state, "request_id", None), data=data)
 
 
 def _client_ip(request: Request) -> str:

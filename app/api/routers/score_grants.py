@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from app.api.deps import rate_limit
+from app.api.deps import ok, rate_limit
 from app.main_deps import get_grant_scoring_service
 from app.models.common import ApiResponse
 from app.models.score_grants import ScoreGrantsRequest, ScoreGrantsResponse
@@ -29,5 +29,4 @@ async def score_grants(
     service: GrantScoringService = Depends(get_grant_scoring_service),
 ) -> ApiResponse[ScoreGrantsResponse]:
     result = await service.score_grants(req)
-    request_id = getattr(request.state, "request_id", None)
-    return ApiResponse(success=True, request_id=request_id, data=result)
+    return ok(request, result)
