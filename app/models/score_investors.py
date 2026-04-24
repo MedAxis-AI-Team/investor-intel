@@ -8,6 +8,14 @@ from pydantic import BaseModel, Field
 from app.config import DEFAULT_SCHEMA_VERSION
 from app.models.common import Confidence
 from app.models.ingest_investor import EventType, OutcomeType
+from app.services._field_limits import (
+    AVOID_MAX,
+    EVIDENCE_URLS_MAX,
+    NARRATIVE_MAX,
+    NOTES_MAX,
+    OUTREACH_MAX,
+    TOP_CLAIMS_MAX,
+)
 
 PipelineStatus = Literal[
     "uncontacted",
@@ -96,10 +104,10 @@ class InvestorScore(BaseModel):
     investor_source: InvestorSource
     confidence: Confidence
     suggested_contact: str = Field(max_length=200)
-    evidence_urls: list[str] = Field(default_factory=list, max_length=20)
+    evidence_urls: list[str] = Field(default_factory=list, max_length=EVIDENCE_URLS_MAX)
     dimension_strengths: DimensionStrengths
-    narrative_summary: str = Field(max_length=2000)
-    top_claims: list[str] = Field(default_factory=list, max_length=5)
+    narrative_summary: str = Field(max_length=NARRATIVE_MAX)
+    top_claims: list[str] = Field(default_factory=list, max_length=TOP_CLAIMS_MAX)
     interactions: list[InvestorInteractionBrief] = Field(default_factory=list, max_length=50)
 
 
@@ -107,12 +115,12 @@ class InvestorScore(BaseModel):
 
 class InvestorAdvisorScore(BaseModel):
     investor_name: str
-    outreach_angle: str = Field(max_length=2000)
-    avoid: str | None = Field(default=None, max_length=1000)
-    re_engagement_notes: str | None = Field(default=None, max_length=2000)
+    outreach_angle: str = Field(max_length=OUTREACH_MAX)
+    avoid: str | None = Field(default=None, max_length=AVOID_MAX)
+    re_engagement_notes: str | None = Field(default=None, max_length=NOTES_MAX)
     full_axis_breakdown: InvestorScoreBreakdown
-    notes: str | None = Field(default=None, max_length=2000)
-    evidence_urls: list[str] = Field(default_factory=list, max_length=20)
+    notes: str | None = Field(default=None, max_length=NOTES_MAX)
+    evidence_urls: list[str] = Field(default_factory=list, max_length=EVIDENCE_URLS_MAX)
 
 
 # ── Response ────────────────────────────────────────────────────────────────

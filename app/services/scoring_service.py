@@ -15,6 +15,7 @@ from app.models.score_investors import (
     ScoreInvestorsRequest,
     ScoreInvestorsResponse,
 )
+from app.services._field_limits import AVOID_MAX, EVIDENCE_URLS_MAX, NARRATIVE_MAX, NOTES_MAX, OUTREACH_MAX, TOP_CLAIMS_MAX
 from app.services._llm_normalizers import bucket_score, compute_investor_tier
 from app.services.confidence import ConfidencePolicy, penalize_for_missing_evidence, to_confidence
 from app.services.llm_client import LlmClient
@@ -224,10 +225,10 @@ class ScoringService:
                 investor_source=source,
                 confidence=to_confidence(confidence_score, policy=self._confidence_policy),
                 suggested_contact=llm_score.suggested_contact,
-                evidence_urls=list(llm_score.evidence_urls),
+                evidence_urls=list(llm_score.evidence_urls)[:EVIDENCE_URLS_MAX],
                 dimension_strengths=dimension_strengths,
-                narrative_summary=llm_score.narrative_summary,
-                top_claims=list(llm_score.top_claims),
+                narrative_summary=(llm_score.narrative_summary or "")[:NARRATIVE_MAX],
+                top_claims=list(llm_score.top_claims)[:TOP_CLAIMS_MAX],
                 interactions=interactions,
             ))
 
@@ -235,15 +236,17 @@ class ScoringService:
             if investor.investor_type == "angel":
                 angel_flag = "[ANGEL] Limited public data — confidence capped at MEDIUM. Manual verification recommended."
                 advisor_notes = f"{advisor_notes}\n\n{angel_flag}" if advisor_notes else angel_flag
+            if advisor_notes and len(advisor_notes) > NOTES_MAX:
+                advisor_notes = advisor_notes[:NOTES_MAX]
 
             advisor_data.append(InvestorAdvisorScore(
                 investor_name=investor.name,
-                outreach_angle=llm_score.outreach_angle,
-                avoid=llm_score.avoid,
+                outreach_angle=(llm_score.outreach_angle or "")[:OUTREACH_MAX],
+                avoid=(llm_score.avoid[:AVOID_MAX] if llm_score.avoid else None),
                 re_engagement_notes=None,
                 full_axis_breakdown=breakdown,
                 notes=advisor_notes,
-                evidence_urls=list(llm_score.evidence_urls),
+                evidence_urls=list(llm_score.evidence_urls)[:EVIDENCE_URLS_MAX],
             ))
 
         return ScoreInvestorsResponse(results=results, advisor_data=advisor_data)

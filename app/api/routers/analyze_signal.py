@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from app.api.deps import rate_limit
+from app.api.deps import ok, rate_limit
 from app.main_deps import get_signal_service
 from app.models.analyze_signal import AnalyzeSignalRequest, AnalyzeSignalResponse
 from app.models.common import ApiResponse
@@ -30,5 +30,4 @@ async def analyze_signal(
     service: SignalService = Depends(get_signal_service),
 ) -> ApiResponse[AnalyzeSignalResponse]:
     result = await service.analyze(req)
-    request_id = getattr(request.state, "request_id", None)
-    return ApiResponse(success=True, request_id=request_id, data=result)
+    return ok(request, result)

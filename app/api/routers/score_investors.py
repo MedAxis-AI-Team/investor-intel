@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from app.api.deps import rate_limit
+from app.api.deps import ok, rate_limit
 from app.main_deps import get_optional_ingest_service, get_scoring_service
 from app.models.common import ApiResponse
 from app.models.score_investors import InvestorInteractionBrief, ScoreInvestorsRequest, ScoreInvestorsResponse
@@ -47,5 +47,4 @@ async def score_investors(
         investor_sources=investor_sources,
         investor_interactions=investor_interactions,
     )
-    request_id = getattr(request.state, "request_id", None)
-    return ApiResponse(success=True, request_id=request_id, data=result)
+    return ok(request, result)

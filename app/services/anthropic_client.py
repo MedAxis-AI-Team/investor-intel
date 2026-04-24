@@ -31,10 +31,18 @@ from app.services.llm_client import (
     LlmXActivitySection,
     LlmXActivitySignal,
 )
+from app.services._field_limits import NOTES_LLM_MAX, TOP_CLAIMS_MAX
 from app.services.scoring_config import ScoringInstructions
 
 _MAX_JSON_RETRIES = 2
 _log = logging.getLogger(__name__)
+
+
+def _truncate_notes(text: str | None) -> str | None:
+    """Cap notes at NOTES_LLM_MAX to leave room for the angel flag append in scoring_service."""
+    if text and len(text) > NOTES_LLM_MAX:
+        return text[:NOTES_LLM_MAX]
+    return text
 
 
 def _build_profile_section(instructions: ScoringInstructions | None) -> str:
@@ -227,7 +235,7 @@ class AnthropicLlmClient(LlmClient):
             ),
             recency=int(payload["recency"]),
             geography=int(payload["geography"]),
-            notes=payload.get("notes"),
+            notes=_truncate_notes(payload.get("notes")),
             outreach_angle=str(payload["outreach_angle"]),
             avoid=str(payload["avoid"]) if payload.get("avoid") else None,
             suggested_contact=enforce_suggested_contact(
@@ -236,7 +244,7 @@ class AnthropicLlmClient(LlmClient):
             evidence_urls=list(payload.get("evidence_urls") or []),
             confidence_score=float(payload["confidence_score"]),
             narrative_summary=str(payload.get("narrative_summary") or ""),
-            top_claims=[str(c) for c in top_claims_raw[:5]],
+            top_claims=[str(c) for c in top_claims_raw[:TOP_CLAIMS_MAX]],
         )
 
     async def analyze_signal(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from app.api.deps import rate_limit
+from app.api.deps import ok, rate_limit
 from app.main_deps import get_digest_service
 from app.models.common import ApiResponse
 from app.models.generate_digest import GenerateDigestRequest, GenerateDigestResponse
@@ -30,5 +30,4 @@ async def generate_digest(
     service: DigestService = Depends(get_digest_service),
 ) -> ApiResponse[GenerateDigestResponse]:
     result = await service.generate(req)
-    request_id = getattr(request.state, "request_id", None)
-    return ApiResponse(success=True, request_id=request_id, data=result)
+    return ok(request, result)

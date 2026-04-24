@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.api.deps import rate_limit
+from app.api.deps import ok, rate_limit
 from app.main_deps import get_ingest_service
 from app.models.common import ApiResponse
 from app.models.ingest_investor import (
@@ -33,11 +33,7 @@ async def ingest_investor_bundle(
     service: IngestService = Depends(get_ingest_service),
 ) -> ApiResponse[IngestInvestorBundleResponse]:
     result = await service.ingest_bundle(req)
-    return ApiResponse(
-        success=True,
-        request_id=getattr(request.state, "request_id", None),
-        data=result,
-    )
+    return ok(request, result)
 
 
 @router.get(
@@ -58,8 +54,4 @@ async def investor_gap(
     service: IngestService = Depends(get_ingest_service),
 ) -> ApiResponse[InvestorGapResponse]:
     result = await service.get_gap_investors(client_id, limit)
-    return ApiResponse(
-        success=True,
-        request_id=getattr(request.state, "request_id", None),
-        data=result,
-    )
+    return ok(request, result)
