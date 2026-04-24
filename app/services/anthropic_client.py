@@ -37,6 +37,12 @@ _MAX_JSON_RETRIES = 2
 _log = logging.getLogger(__name__)
 
 
+def _truncate(text: str | None, max_len: int) -> str | None:
+    if text and len(text) > max_len:
+        return text[:max_len]
+    return text
+
+
 def _build_profile_section(instructions: ScoringInstructions | None) -> str:
     """Build the CLIENT PROFILE prompt block from ScoringInstructions.
 
@@ -227,15 +233,15 @@ class AnthropicLlmClient(LlmClient):
             ),
             recency=int(payload["recency"]),
             geography=int(payload["geography"]),
-            notes=payload.get("notes"),
-            outreach_angle=str(payload["outreach_angle"]),
-            avoid=str(payload["avoid"]) if payload.get("avoid") else None,
+            notes=_truncate(payload.get("notes"), 1900),
+            outreach_angle=_truncate(str(payload["outreach_angle"]), 2000),
+            avoid=_truncate(str(payload["avoid"]), 1000) if payload.get("avoid") else None,
             suggested_contact=enforce_suggested_contact(
                 str(payload["suggested_contact"]), investor_notes,
             ),
-            evidence_urls=list(payload.get("evidence_urls") or []),
+            evidence_urls=list(payload.get("evidence_urls") or [])[:20],
             confidence_score=float(payload["confidence_score"]),
-            narrative_summary=str(payload.get("narrative_summary") or ""),
+            narrative_summary=_truncate(str(payload.get("narrative_summary") or ""), 2000),
             top_claims=[str(c) for c in top_claims_raw[:5]],
         )
 

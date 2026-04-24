@@ -224,10 +224,10 @@ class ScoringService:
                 investor_source=source,
                 confidence=to_confidence(confidence_score, policy=self._confidence_policy),
                 suggested_contact=llm_score.suggested_contact,
-                evidence_urls=list(llm_score.evidence_urls),
+                evidence_urls=list(llm_score.evidence_urls)[:20],
                 dimension_strengths=dimension_strengths,
-                narrative_summary=llm_score.narrative_summary,
-                top_claims=list(llm_score.top_claims),
+                narrative_summary=(llm_score.narrative_summary or "")[:2000],
+                top_claims=list(llm_score.top_claims)[:5],
                 interactions=interactions,
             ))
 
@@ -235,15 +235,17 @@ class ScoringService:
             if investor.investor_type == "angel":
                 angel_flag = "[ANGEL] Limited public data — confidence capped at MEDIUM. Manual verification recommended."
                 advisor_notes = f"{advisor_notes}\n\n{angel_flag}" if advisor_notes else angel_flag
+            if advisor_notes and len(advisor_notes) > 2000:
+                advisor_notes = advisor_notes[:2000]
 
             advisor_data.append(InvestorAdvisorScore(
                 investor_name=investor.name,
-                outreach_angle=llm_score.outreach_angle,
-                avoid=llm_score.avoid,
+                outreach_angle=(llm_score.outreach_angle or "")[:2000],
+                avoid=(llm_score.avoid[:1000] if llm_score.avoid else None),
                 re_engagement_notes=None,
                 full_axis_breakdown=breakdown,
                 notes=advisor_notes,
-                evidence_urls=list(llm_score.evidence_urls),
+                evidence_urls=list(llm_score.evidence_urls)[:20],
             ))
 
         return ScoreInvestorsResponse(results=results, advisor_data=advisor_data)

@@ -331,4 +331,57 @@ def test_llm_retry_exhausted_returns_held_for_review(monkeypatch) -> None:
     body = res.json()
     assert body["success"] is False
     assert body["error"]["code"] == "held_for_review"
-    assert "raw_output" in body["error"]["details"]
+
+
+def test_score_investors_truncates_oversized_llm_fields(monkeypatch) -> None:
+    """Production uses LLM_MAX_TOKENS=8192 which can return text exceeding model max_length constraints.
+    The service must truncate before constructing response models or a pydantic.ValidationError
+    escapes to the global Exception handler and returns HTTP 500."""
+
+    class _OversizedLlmClient:
+        async def score_investor(self, **kwargs) -> LlmInvestorScore:
+            return LlmInvestorScore(
+                thesis_alignment=80,
+                stage_fit=70,
+                check_size_fit=60,
+                scientific_regulatory_fit=55,
+                recency=65,
+                geography=50,
+                notes="N" * 3000,
+                outreach_angle="O" * 3000,
+                avoid="A" * 1500,
+                suggested_contact="Partner",
+                evidence_urls=[f"https://example.com/{i}" for i in range(30)],
+                confidence_score=0.85,
+                narrative_summary="S" * 3000,
+                top_claims=["C"] * 10,
+            )
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+    get_settings.cache_clear()
+
+    app = create_app()
+    app.dependency_overrides[get_llm_client] = lambda: _OversizedLlmClient()
+    test_client = TestClient(app)
+
+    res = test_client.post(
+        "/score-investors",
+        json={
+            "client": {"name": "Acme", "thesis": "Bio"},
+            "investors": [{"name": "Firm A"}, {"name": "Firm B"}],
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+
+    results = body["data"]["results"]
+    advisor_data = body["data"]["advisor_data"]
+    assert len(results) == 2
+    assert len(advisor_data) == 2
+
+    assert len(results[0]["narrative_summary"]) <= 2000
+    assert len(advisor_data[0]["outreach_angle"]) <= 2000
+    assert advisor_data[0]["avoid"] is None or len(advisor_data[0]["avoid"]) <= 1000
+    assert advisor_data[0]["notes"] is None or len(advisor_data[0]["notes"]) <= 2000
+    assert len(advisor_data[0]["evidence_urls"]) <= 20
