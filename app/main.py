@@ -122,7 +122,6 @@ def create_app() -> FastAPI:
             error=ApiError(
                 code="held_for_review",
                 message="LLM output did not parse after retries. Flagged for manual review.",
-                details={"raw_output": exc.raw[:500]},
             ),
         )
         return JSONResponse(status_code=200, content=body.model_dump())
