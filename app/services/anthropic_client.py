@@ -31,11 +31,48 @@ from app.services.llm_client import (
     LlmXActivitySection,
     LlmXActivitySignal,
 )
-from app.services._field_limits import NOTES_LLM_MAX, TOP_CLAIMS_MAX
+from app.services._field_limits import (
+    ADVISOR_ANGLE_MAX,
+    ADVISOR_AVOID_MAX,
+    ADVISOR_OBJECTION_MAX,
+    ADVISOR_OPENING_MAX,
+    ADVISOR_REENGAGEMENT_MAX,
+    ADVISOR_RESPONSE_MAX,
+    DIGEST_BULLET_MAX,
+    DIGEST_PREHEADER_MAX,
+    DIGEST_RECOMMENDED_ACTION_MAX,
+    DIGEST_SIGNAL_SUMMARY_MAX,
+    DIGEST_SUBJECT_MAX,
+    DIGEST_TITLE_MAX,
+    GRANT_GUIDANCE_MAX,
+    GRANT_RATIONALE_MAX,
+    NOTES_LLM_MAX,
+    SIGNAL_CONTACT_MAX,
+    SIGNAL_HEADLINE_MAX,
+    SIGNAL_OUTREACH_MAX,
+    SIGNAL_RATIONALE_MAX,
+    SIGNAL_TIMESENS_MAX,
+    SIGNAL_WHY_MAX,
+    TOP_CLAIMS_MAX,
+)
 from app.services.scoring_config import ScoringInstructions
 
 _MAX_JSON_RETRIES = 2
+_MAX_JSON_SIZE = 1_000_000
 _log = logging.getLogger(__name__)
+
+
+def _safe_str(value: object, default: str = "") -> str:
+    """Return str(value) but coerce None to default rather than the literal 'None'."""
+    if value is None:
+        return default
+    return str(value)
+
+
+def _trunc(value: object, limit: int, default: str = "") -> str:
+    """Safe str coercion + truncation in one call."""
+    s = _safe_str(value, default)
+    return s[:limit] if len(s) > limit else s
 
 
 def _truncate_notes(text: str | None) -> str | None:
@@ -134,6 +171,12 @@ class AnthropicLlmClient(LlmClient):
                     "Check API key, model config, and prompt length."
                 )
 
+            if len(text) > _MAX_JSON_SIZE:
+                raise ValueError(
+                    f"LLM response exceeds max allowed size ({len(text)} > {_MAX_JSON_SIZE}). "
+                    "Check LLM_MAX_TOKENS config."
+                )
+
             try:
                 return json.loads(text)
             except json.JSONDecodeError:
@@ -176,7 +219,7 @@ class AnthropicLlmClient(LlmClient):
             user=(
                 "Score an investor against a client thesis using the 6-axis model.\n"
                 f"Client: {client_name}\n"
-                f"Thesis: {client_thesis}"
+                f"Thesis:\n<<<\n{client_thesis}\n>>>"
                 f"{geography_section}"
                 f"{funding_section}"
                 f"\nInvestor: {investor_name}"
@@ -322,7 +365,8 @@ class AnthropicLlmClient(LlmClient):
             if grok_batch_context:
                 grok_parts.append(
                     f"  grok_batch_context (other posts from this search run — "
-                    f"use for background context only, not as pre-scored data):\n{grok_batch_context}"
+                    f"use for background context only, not as pre-scored data):\n"
+                    f"<<<\n{grok_batch_context}\n>>>"
                 )
             grok_parts.extend([
                 "  Engagement weighting: replies > likes; "
@@ -338,6 +382,12 @@ class AnthropicLlmClient(LlmClient):
                 "fund_activity | portfolio_mention | hiring_signal | general_activity"
             )
 
+        raw_text_block = (
+            f"Raw text:\n<<<\n{raw_text}\n>>>"
+            if raw_text
+            else "Raw text: not provided"
+        )
+
         payload = await self._json_call(
             system="You are a strict JSON-only signal analyst for biotech investor intelligence. Output ONLY valid JSON.",
             user=(
@@ -346,7 +396,7 @@ class AnthropicLlmClient(LlmClient):
                 f"Title: {title}\n"
                 f"URL: {url}\n"
                 f"Published: {published_at or 'unknown'}\n"
-                f"Raw text: {raw_text or 'not provided'}"
+                f"{raw_text_block}"
                 f"{investor_section}"
                 f"{client_section}"
                 f"{x_grok_section}\n\n"
@@ -380,14 +430,14 @@ class AnthropicLlmClient(LlmClient):
 
         briefing_data = payload.get("briefing") or {}
         briefing = LlmSignalBriefing(
-            headline=str(briefing_data.get("headline", title)),
-            why_it_matters=str(briefing_data.get("why_it_matters", "")),
-            outreach_angle=str(briefing_data.get("outreach_angle", "")),
+            headline=_trunc(briefing_data.get("headline") or title, SIGNAL_HEADLINE_MAX),
+            why_it_matters=_trunc(briefing_data.get("why_it_matters"), SIGNAL_WHY_MAX),
+            outreach_angle=_trunc(briefing_data.get("outreach_angle"), SIGNAL_OUTREACH_MAX),
             suggested_contact=enforce_suggested_contact(
-                str(briefing_data.get("suggested_contact", "")),
-                investor_notes=str(briefing_data.get("why_it_matters", "")),
+                _trunc(briefing_data.get("suggested_contact"), SIGNAL_CONTACT_MAX),
+                investor_notes=_safe_str(briefing_data.get("why_it_matters")),
             ),
-            time_sensitivity=str(briefing_data.get("time_sensitivity", "")),
+            time_sensitivity=_trunc(briefing_data.get("time_sensitivity"), SIGNAL_TIMESENS_MAX),
             source_urls=list(briefing_data.get("source_urls") or []),
         )
 
@@ -404,7 +454,7 @@ class AnthropicLlmClient(LlmClient):
         return LlmSignalAnalysis(
             priority=normalize_priority_upper(str(payload["priority"])),
             confidence_score=float(payload["confidence_score"]),
-            rationale=str(payload["rationale"]),
+            rationale=_trunc(payload.get("rationale"), SIGNAL_RATIONALE_MAX),
             categories=list(payload.get("categories") or []),
             evidence_urls=list(payload.get("evidence_urls") or []),
             relevance_score=int(payload.get("relevance_score", 50)),
@@ -520,20 +570,23 @@ class AnthropicLlmClient(LlmClient):
         client_raw = payload.get("client_digest") or payload
         sections = []
         for section in client_raw.get("sections", []):
-            title = section.get("title") or section.get("section_title") or section.get("heading") or ""
-            sections.append((str(title), [str(b) for b in (section.get("bullets") or [])]))
+            raw_title = section.get("title") or section.get("section_title") or section.get("heading") or ""
+            sections.append((
+                _trunc(raw_title, DIGEST_TITLE_MAX),
+                [_trunc(b, DIGEST_BULLET_MAX) for b in (section.get("bullets") or [])],
+            ))
 
         x_section_raw = client_raw.get("x_activity_section") or {}
         x_activity_signals = []
         for sig in x_section_raw.get("signals", []):
             x_activity_signals.append(LlmXActivitySignal(
-                investor_name=str(sig.get("investor_name", "Unknown")),
-                firm=str(sig.get("firm", "Unknown")),
-                signal_summary=str(sig.get("signal_summary", "")),
+                investor_name=_safe_str(sig.get("investor_name"), "Unknown"),
+                firm=_safe_str(sig.get("firm"), "Unknown"),
+                signal_summary=_trunc(sig.get("signal_summary"), DIGEST_SIGNAL_SUMMARY_MAX),
                 x_signal_type=normalize_x_signal_type(sig.get("x_signal_type")) or "general_activity",
-                recommended_action=str(sig.get("recommended_action", "")),
-                window=normalize_window(str(sig.get("window", "monitor"))),
-                priority=normalize_priority(str(sig.get("priority", "medium"))),
+                recommended_action=_trunc(sig.get("recommended_action"), DIGEST_RECOMMENDED_ACTION_MAX),
+                window=normalize_window(_safe_str(sig.get("window"), "monitor")),
+                priority=normalize_priority(_safe_str(sig.get("priority"), "medium")),
             ))
 
         x_note = x_section_raw.get("section_note")
@@ -549,8 +602,8 @@ class AnthropicLlmClient(LlmClient):
         advisor_prep = self._parse_advisor_prep(advisor_raw)
 
         return LlmDigestResult(
-            subject=str(client_raw.get("subject", "")),
-            preheader=str(client_raw.get("preheader", "")),
+            subject=_trunc(client_raw.get("subject"), DIGEST_SUBJECT_MAX),
+            preheader=_trunc(client_raw.get("preheader"), DIGEST_PREHEADER_MAX),
             sections=sections,
             x_activity_section=x_activity_section,
             advisor_prep=advisor_prep,
@@ -559,25 +612,28 @@ class AnthropicLlmClient(LlmClient):
     def _parse_advisor_prep(self, raw: dict) -> LlmAdvisorPrep:
         angles = []
         for a in raw.get("outreach_angles") or []:
+            re_eng = a.get("re_engagement_notes")
             angles.append(LlmAdvisorOutreachAngle(
-                investor_name=str(a.get("investor_name", "")),
-                angle=str(a.get("angle", "")),
-                avoid=str(a.get("avoid", "")),
-                re_engagement_notes=a.get("re_engagement_notes"),
+                investor_name=_safe_str(a.get("investor_name")),
+                angle=_trunc(a.get("angle"), ADVISOR_ANGLE_MAX),
+                avoid=_trunc(a.get("avoid"), ADVISOR_AVOID_MAX),
+                re_engagement_notes=(
+                    _trunc(re_eng, ADVISOR_REENGAGEMENT_MAX) if re_eng is not None else None
+                ),
             ))
 
         call_raw = raw.get("call_plan") or {}
         call_plan = LlmAdvisorCallPlan(
-            opening_framing=str(call_raw.get("opening_framing", "")),
-            discussion_threads=[str(t) for t in (call_raw.get("discussion_threads") or [])],
-            desired_outcome=str(call_raw.get("desired_outcome", "")),
+            opening_framing=_trunc(call_raw.get("opening_framing"), ADVISOR_OPENING_MAX),
+            discussion_threads=[_safe_str(t) for t in (call_raw.get("discussion_threads") or [])],
+            desired_outcome=_safe_str(call_raw.get("desired_outcome")),
         )
 
         objections = []
         for o in raw.get("likely_objections") or []:
             objections.append(LlmAdvisorObjection(
-                objection=str(o.get("objection", "")),
-                response=str(o.get("response", "")),
+                objection=_trunc(o.get("objection"), ADVISOR_OBJECTION_MAX),
+                response=_trunc(o.get("response"), ADVISOR_RESPONSE_MAX),
             ))
 
         return LlmAdvisorPrep(
@@ -635,6 +691,7 @@ class AnthropicLlmClient(LlmClient):
             ),
         )
 
+        raw_guidance = payload.get("application_guidance")
         return LlmGrantScore(
             overall_score=int(payload["overall_score"]),
             therapeutic_match=int(payload["therapeutic_match"]),
@@ -642,7 +699,9 @@ class AnthropicLlmClient(LlmClient):
             award_size_relevance=int(payload["award_size_relevance"]),
             deadline_feasibility=int(payload["deadline_feasibility"]),
             historical_funding=int(payload["historical_funding"]),
-            rationale=str(payload["rationale"]),
-            application_guidance=payload.get("application_guidance"),
-            confidence=str(payload["confidence"]),
+            rationale=_trunc(payload.get("rationale"), GRANT_RATIONALE_MAX),
+            application_guidance=(
+                _trunc(raw_guidance, GRANT_GUIDANCE_MAX) if raw_guidance is not None else None
+            ),
+            confidence=_safe_str(payload.get("confidence"), "medium"),
         )

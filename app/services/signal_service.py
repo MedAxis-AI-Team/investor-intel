@@ -6,8 +6,21 @@ from app.models.analyze_signal import (
     SignalAnalysis,
     SignalBriefing,
 )
+from app.services._field_limits import (
+    SIGNAL_CONTACT_MAX,
+    SIGNAL_HEADLINE_MAX,
+    SIGNAL_OUTREACH_MAX,
+    SIGNAL_RATIONALE_MAX,
+    SIGNAL_TIMESENS_MAX,
+    SIGNAL_WHY_MAX,
+)
 from app.services.confidence import ConfidencePolicy, penalize_for_missing_evidence, to_confidence
 from app.services.llm_client import LlmClient
+
+
+def _trunc(value: object, limit: int, default: str = "") -> str:
+    s = "" if value is None else str(value)
+    return s[:limit] if len(s) > limit else s
 
 
 class SignalService:
@@ -50,18 +63,18 @@ class SignalService:
         )
 
         briefing = SignalBriefing(
-            headline=llm_result.briefing.headline,
-            why_it_matters=llm_result.briefing.why_it_matters,
-            outreach_angle=llm_result.briefing.outreach_angle,
-            suggested_contact=llm_result.briefing.suggested_contact,
-            time_sensitivity=llm_result.briefing.time_sensitivity,
+            headline=_trunc(llm_result.briefing.headline, SIGNAL_HEADLINE_MAX),
+            why_it_matters=_trunc(llm_result.briefing.why_it_matters, SIGNAL_WHY_MAX),
+            outreach_angle=_trunc(llm_result.briefing.outreach_angle, SIGNAL_OUTREACH_MAX),
+            suggested_contact=_trunc(llm_result.briefing.suggested_contact, SIGNAL_CONTACT_MAX),
+            time_sensitivity=_trunc(llm_result.briefing.time_sensitivity, SIGNAL_TIMESENS_MAX),
             source_urls=list(llm_result.briefing.source_urls),
         )
 
         analysis = SignalAnalysis(
             priority=str(llm_result.priority),
             confidence=to_confidence(confidence_score, policy=self._confidence_policy),
-            rationale=str(llm_result.rationale),
+            rationale=_trunc(llm_result.rationale, SIGNAL_RATIONALE_MAX),
             categories=list(llm_result.categories),
             evidence_urls=list(llm_result.evidence_urls),
             relevance_score=llm_result.relevance_score,

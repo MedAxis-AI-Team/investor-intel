@@ -98,6 +98,8 @@ class _FakeLlmClient:
         x_engagement_author: str | None,
         x_engagement_author_type: str | None,
     ) -> LlmSignalAnalysis:
+        from app.services._llm_normalizers import compute_expiry
+
         x_sig_type: str | None = None
         if signal_type == "X_GROK":
             x_sig_type = "fund_activity"
@@ -113,12 +115,12 @@ class _FakeLlmClient:
                 headline=f"Signal: {title}",
                 why_it_matters="Significant market movement detected.",
                 outreach_angle="Leverage this signal for timely outreach.",
-                suggested_contact="Head of BD",
+                suggested_contact="Not identified",
                 time_sensitivity="Act within 1 week",
                 source_urls=[url],
             ),
             signal_type="fund_close",
-            expires_relevance="2026-04-05",
+            expires_relevance=compute_expiry("fund_close", published_at),
             x_signal_type=x_sig_type,
         )
 

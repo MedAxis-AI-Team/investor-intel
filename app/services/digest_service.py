@@ -12,7 +12,27 @@ from app.models.generate_digest import (
     XActivitySection,
     XActivitySignal,
 )
+from app.services._field_limits import (
+    ADVISOR_ANGLE_MAX,
+    ADVISOR_AVOID_MAX,
+    ADVISOR_DESIRED_OUTCOME_MAX,
+    ADVISOR_OBJECTION_MAX,
+    ADVISOR_OPENING_MAX,
+    ADVISOR_REENGAGEMENT_MAX,
+    ADVISOR_RESPONSE_MAX,
+    DIGEST_BULLET_MAX,
+    DIGEST_PREHEADER_MAX,
+    DIGEST_RECOMMENDED_ACTION_MAX,
+    DIGEST_SIGNAL_SUMMARY_MAX,
+    DIGEST_SUBJECT_MAX,
+    DIGEST_TITLE_MAX,
+)
 from app.services.llm_client import LlmAdvisorPrep, LlmClient
+
+
+def _trunc(value: object, limit: int, default: str = "") -> str:
+    s = "" if value is None else str(value)
+    return s[:limit] if len(s) > limit else s
 
 
 _WINDOW_ORDER = {"immediate": 0, "this_week": 1, "monitor": 2}
@@ -43,7 +63,10 @@ class DigestService:
         # Filter sections with empty titles; DigestSection requires min_length=1 on title.
         # DigestPayload requires at least 1 section, so fall back to a placeholder if all are empty.
         sections = [
-            DigestSection(title=title, bullets=bullets)
+            DigestSection(
+                title=_trunc(title, DIGEST_TITLE_MAX),
+                bullets=[_trunc(b, DIGEST_BULLET_MAX) for b in bullets],
+            )
             for (title, bullets) in llm_result.sections
             if title
         ]
@@ -54,9 +77,9 @@ class DigestService:
             XActivitySignal(
                 investor_name=sig.investor_name,
                 firm=sig.firm,
-                signal_summary=sig.signal_summary,
+                signal_summary=_trunc(sig.signal_summary, DIGEST_SIGNAL_SUMMARY_MAX),
                 x_signal_type=sig.x_signal_type,
-                recommended_action=sig.recommended_action,
+                recommended_action=_trunc(sig.recommended_action, DIGEST_RECOMMENDED_ACTION_MAX),
                 window=sig.window,
                 priority=sig.priority,
             )
@@ -70,8 +93,8 @@ class DigestService:
         )
 
         client_digest = DigestPayload(
-            subject=llm_result.subject,
-            preheader=llm_result.preheader,
+            subject=_trunc(llm_result.subject, DIGEST_SUBJECT_MAX),
+            preheader=_trunc(llm_result.preheader, DIGEST_PREHEADER_MAX),
             sections=sections,
             x_activity_section=x_activity_section,
         )
@@ -84,9 +107,12 @@ class DigestService:
         outreach_angles = [
             AdvisorOutreachAngle(
                 investor_name=a.investor_name,
-                angle=a.angle,
-                avoid=a.avoid,
-                re_engagement_notes=a.re_engagement_notes,
+                angle=_trunc(a.angle, ADVISOR_ANGLE_MAX),
+                avoid=_trunc(a.avoid, ADVISOR_AVOID_MAX),
+                re_engagement_notes=(
+                    _trunc(a.re_engagement_notes, ADVISOR_REENGAGEMENT_MAX)
+                    if a.re_engagement_notes is not None else None
+                ),
             )
             for a in prep.outreach_angles
         ]
@@ -94,13 +120,16 @@ class DigestService:
         # discussion_threads requires min_length=1; guard against empty LLM output.
         discussion_threads = list(prep.call_plan.discussion_threads) or ["Review investor thesis alignment"]
         call_plan = AdvisorCallPlan(
-            opening_framing=prep.call_plan.opening_framing,
+            opening_framing=_trunc(prep.call_plan.opening_framing, ADVISOR_OPENING_MAX),
             discussion_threads=discussion_threads,
-            desired_outcome=prep.call_plan.desired_outcome,
+            desired_outcome=_trunc(prep.call_plan.desired_outcome, ADVISOR_DESIRED_OUTCOME_MAX),
         )
 
         objections = [
-            AdvisorObjection(objection=o.objection, response=o.response)
+            AdvisorObjection(
+                objection=_trunc(o.objection, ADVISOR_OBJECTION_MAX),
+                response=_trunc(o.response, ADVISOR_RESPONSE_MAX),
+            )
             for o in prep.likely_objections
         ]
 

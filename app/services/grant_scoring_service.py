@@ -8,8 +8,14 @@ from app.models.score_grants import (
     ScoreGrantsResponse,
     ScoredGrant,
 )
+from app.services._field_limits import GRANT_GUIDANCE_MAX, GRANT_RATIONALE_MAX
 from app.services._llm_normalizers import normalize_grant_confidence
 from app.services.llm_client import LlmClient
+
+
+def _trunc(value: object, limit: int, default: str = "") -> str:
+    s = "" if value is None else str(value)
+    return s[:limit] if len(s) > limit else s
 
 
 def _days_until_deadline(deadline_str: str | None) -> int | None:
@@ -65,8 +71,11 @@ class GrantScoringService:
                     url=grant.url,
                     overall_score=llm_score.overall_score,
                     breakdown=breakdown,
-                    rationale=llm_score.rationale,
-                    application_guidance=llm_score.application_guidance,
+                    rationale=_trunc(llm_score.rationale, GRANT_RATIONALE_MAX),
+                    application_guidance=(
+                        _trunc(llm_score.application_guidance, GRANT_GUIDANCE_MAX)
+                        if llm_score.application_guidance is not None else None
+                    ),
                     confidence=normalize_grant_confidence(llm_score.confidence),
                 )
             )

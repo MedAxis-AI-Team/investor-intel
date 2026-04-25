@@ -11,8 +11,11 @@ Prompt instructions are defense-in-depth only — code here is the enforcement l
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timedelta
+
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Signal type normalization (analyze_signal output)
@@ -88,7 +91,11 @@ def normalize_x_signal_type(raw: str | None) -> str | None:
     lower = raw.strip().lower()
     if lower in _X_SIGNAL_TYPE_SPEC:
         return lower
-    return _X_SIGNAL_TYPE_MAP.get(lower, "general_activity")
+    result = _X_SIGNAL_TYPE_MAP.get(lower)
+    if result is None:
+        _log.debug("normalize_x_signal_type fallback: %r -> general_activity", raw)
+        return "general_activity"
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +112,7 @@ def normalize_window(raw: str) -> str:
     lower = raw.strip().lower()
     if lower in _WINDOW_SPEC:
         return lower
+    _log.debug("normalize_window fallback: %r -> monitor", raw)
     return "monitor"
 
 
@@ -113,6 +121,7 @@ def normalize_priority(raw: str) -> str:
     lower = raw.strip().lower()
     if lower in _PRIORITY_SPEC:
         return lower
+    _log.debug("normalize_priority fallback: %r -> medium", raw)
     return "medium"
 
 
@@ -121,6 +130,7 @@ def normalize_priority_upper(raw: str) -> str:
     upper = raw.strip().upper()
     if upper in _PRIORITY_UPPER_SPEC:
         return upper
+    _log.debug("normalize_priority_upper fallback: %r -> MEDIUM", raw)
     return "MEDIUM"
 
 
