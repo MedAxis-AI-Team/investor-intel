@@ -5,6 +5,10 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
+from app import __version__ as _APP_VERSION
+from app.config import get_settings
 from app.models.common import Confidence
 from app.models.score_investors import (
     DimensionStrengths,
@@ -16,6 +20,7 @@ from app.models.score_investors import (
     ScoreInvestorsRequest,
     ScoreInvestorsResponse,
     ScoringPolicy,
+    VersionBundle,
 )
 from app.services._field_limits import AVOID_MAX, EVIDENCE_URLS_MAX, NARRATIVE_MAX, NOTES_MAX, OUTREACH_MAX, TOP_CLAIMS_MAX
 from app.services._llm_normalizers import bucket_score, compute_investor_tier
@@ -183,6 +188,34 @@ def _policy_to_instructions(policy: ScoringPolicy) -> ScoringInstructions:
     )
 
 
+def _parse_scoring_policy(raw: dict) -> ScoringPolicy | None:
+    """Parse raw dict to ScoringPolicy. Logs and returns None on validation failure."""
+    try:
+        return ScoringPolicy.model_validate(raw)
+    except ValidationError as exc:
+        _log.warning(
+            "scoring_policy validation failed — falling back to client_profile path: %s | payload=%r",
+            exc,
+            raw,
+        )
+        return None
+
+
+def _build_version_bundle(policy: ScoringPolicy | None, *, raw_policy: dict | None) -> VersionBundle:
+    if policy is not None:
+        spv = policy.version
+    elif raw_policy is not None:
+        spv = "fallback"
+    else:
+        spv = "none"
+    return VersionBundle(
+        scoring_policy_version=spv,
+        endpoint_version=_APP_VERSION,
+        prompt_version=_CLASSIFIER_VERSION,
+        model_version=get_settings().llm_model,
+    )
+
+
 class ScoringService:
     def __init__(self, *, llm: LlmClient, weights: ScoreWeights, confidence_policy: ConfidencePolicy) -> None:
         self._llm = llm
@@ -226,8 +259,12 @@ class ScoringService:
         investor_interactions: parallel to req.investors — interaction history from client tracker.
                                Defaults to empty lists when omitted.
         """
-        if req.scoring_policy is not None:
-            scoring_instructions = _policy_to_instructions(req.scoring_policy)
+        policy = _parse_scoring_policy(req.scoring_policy) if req.scoring_policy is not None else None
+        version_bundle = _build_version_bundle(policy, raw_policy=req.scoring_policy)
+        _log.info("version_bundle: %r", version_bundle.model_dump())
+
+        if policy is not None:
+            scoring_instructions = _policy_to_instructions(policy)
         else:
             scoring_instructions = build_scoring_instructions(
                 req.client.client_profile,
@@ -268,13 +305,13 @@ class ScoringService:
                 geography=llm_score.geography,
             )
 
-            if req.scoring_policy is not None:
-                if _hard_excluded(req.scoring_policy, investor):
+            if policy is not None:
+                if _hard_excluded(policy, investor):
                     composite_score = 0
                 else:
                     composite_score = _policy_weighted_overall(
                         breakdown=breakdown,
-                        policy=req.scoring_policy,
+                        policy=policy,
                         investor=investor,
                     )
             else:
@@ -331,4 +368,4 @@ class ScoringService:
                 evidence_urls=list(llm_score.evidence_urls)[:EVIDENCE_URLS_MAX],
             ))
 
-        return ScoreInvestorsResponse(results=results, advisor_data=advisor_data)
+        return ScoreInvestorsResponse(results=results, advisor_data=advisor_data, version_bundle=version_bundle)
