@@ -18,6 +18,35 @@ from datetime import datetime, timedelta
 _log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Input sanitization (scoring_policy freeform fields)
+# ---------------------------------------------------------------------------
+
+_INJECTION_RE = re.compile(
+    r"ignore\s+previous|system\s*:|assistant\s*:|user\s*:|prompt\s*:|"
+    r"role\s*:|instruction\s*:|<[^>]+>|\{\{|\[\[|\$\{|jailbreak|bypass|override",
+    re.IGNORECASE,
+)
+_URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+_MARKDOWN_RE = re.compile(r"[*_`#~|]")
+
+
+def sanitize_freeform_field(
+    value: str,
+    *,
+    max_chars: int = 300,
+    field_name: str = "field",
+) -> str:
+    """Strip markdown/URLs, truncate, and reject prompt-injection patterns.
+
+    Raises ValueError on injection attempts. Safe to call from Pydantic field_validator.
+    """
+    if _INJECTION_RE.search(value):
+        raise ValueError(f"Rejected: prompt injection pattern detected in {field_name}")
+    value = _URL_RE.sub("", value)
+    value = _MARKDOWN_RE.sub("", value)
+    return value.strip()[:max_chars]
+
+# ---------------------------------------------------------------------------
 # Signal type normalization (analyze_signal output)
 # ---------------------------------------------------------------------------
 

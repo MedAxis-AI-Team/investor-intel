@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -14,16 +15,18 @@ from app.models.score_investors import (
     InvestorScoreBreakdown,
     ScoreInvestorsRequest,
     ScoreInvestorsResponse,
+    ScoringPolicy,
 )
 from app.services._field_limits import AVOID_MAX, EVIDENCE_URLS_MAX, NARRATIVE_MAX, NOTES_MAX, OUTREACH_MAX, TOP_CLAIMS_MAX
 from app.services._llm_normalizers import bucket_score, compute_investor_tier
 from app.services.confidence import ConfidencePolicy, penalize_for_missing_evidence, to_confidence
 from app.services.llm_client import LlmClient
-from app.services.scoring_config import build_scoring_instructions
+from app.services.scoring_config import ScoringInstructions, _CLASSIFIER_VERSION, build_scoring_instructions
 
 if TYPE_CHECKING:
     from app.services.ingest_service import ClientInvestorRecord
 
+_log = logging.getLogger(__name__)
 _NON_ALNUM = re.compile(r"[^a-z0-9\s]")
 
 
@@ -114,6 +117,72 @@ def _weighted_overall(*, breakdown: InvestorScoreBreakdown, weights: ScoreWeight
     return int(round(score))
 
 
+def _investor_text(investor: InvestorInput) -> str:
+    return f"{investor.name} {investor.notes or ''} {investor.investor_type or ''}".lower()
+
+
+def _matches(term: str, investor: InvestorInput) -> bool:
+    return term.lower() in _investor_text(investor)
+
+
+def _hard_excluded(policy: ScoringPolicy, investor: InvestorInput) -> bool:
+    if not policy.hard_exclusions:
+        return False
+    return any(_matches(exc.match_term, investor) for exc in policy.hard_exclusions)
+
+
+def _policy_weighted_overall(
+    *,
+    breakdown: InvestorScoreBreakdown,
+    policy: ScoringPolicy,
+    investor: InvestorInput,
+) -> int:
+    axis_map: dict[str, float] = {
+        "thesis_alignment": float(breakdown.thesis_alignment),
+        "stage_fit": float(breakdown.stage_fit),
+        "check_size_fit": float(breakdown.check_size_fit),
+        "scientific_regulatory_fit": float(breakdown.scientific_regulatory_fit or 0),
+        "recency": float(breakdown.recency),
+        "geography": float(breakdown.geography),
+    }
+
+    weight_sum = sum(c.weight for c in policy.policy_components)
+    if abs(weight_sum - 1.0) > 0.01:
+        _log.info("policy_components weights sum %.4f; normalizing to 1.0", weight_sum)
+
+    score = 0.0
+    for comp in policy.policy_components:
+        raw = axis_map[comp.axis]
+        for boost in comp.soft_boosts:
+            if _matches(boost.term, investor):
+                raw = min(100.0, raw * boost.multiplier)
+        score += (comp.weight / weight_sum) * raw
+
+    if policy.capital_channels:
+        for ch in policy.capital_channels:
+            if _matches(ch.match_term, investor):
+                score = min(100.0, max(0.0, score * ch.multiplier))
+
+    return int(round(score))
+
+
+def _policy_to_instructions(policy: ScoringPolicy) -> ScoringInstructions:
+    guidance_parts = [
+        f"{c.axis}: {c.guidance}" for c in policy.policy_components if c.guidance
+    ]
+    return ScoringInstructions(
+        profile_type="custom_policy",
+        thesis_keywords=[],
+        investor_universe_hints="Custom scoring policy — see component guidance.",
+        stage_fit_guidance="Custom scoring policy — see component guidance.",
+        sci_reg_guidance="Custom scoring policy — see component guidance.",
+        score_scientific_regulatory=True,
+        modifier_keywords=[],
+        modifier_guidance="\n".join(guidance_parts),
+        classifier_version=_CLASSIFIER_VERSION,
+    )
+
+
 class ScoringService:
     def __init__(self, *, llm: LlmClient, weights: ScoreWeights, confidence_policy: ConfidencePolicy) -> None:
         self._llm = llm
@@ -157,10 +226,13 @@ class ScoringService:
         investor_interactions: parallel to req.investors — interaction history from client tracker.
                                Defaults to empty lists when omitted.
         """
-        scoring_instructions = build_scoring_instructions(
-            req.client.client_profile,
-            list(req.client.modifiers),
-        )
+        if req.scoring_policy is not None:
+            scoring_instructions = _policy_to_instructions(req.scoring_policy)
+        else:
+            scoring_instructions = build_scoring_instructions(
+                req.client.client_profile,
+                list(req.client.modifiers),
+            )
 
         results: list[InvestorScore] = []
         advisor_data: list[InvestorAdvisorScore] = []
@@ -196,7 +268,17 @@ class ScoringService:
                 geography=llm_score.geography,
             )
 
-            composite_score = _weighted_overall(breakdown=breakdown, weights=self._weights)
+            if req.scoring_policy is not None:
+                if _hard_excluded(req.scoring_policy, investor):
+                    composite_score = 0
+                else:
+                    composite_score = _policy_weighted_overall(
+                        breakdown=breakdown,
+                        policy=req.scoring_policy,
+                        investor=investor,
+                    )
+            else:
+                composite_score = _weighted_overall(breakdown=breakdown, weights=self._weights)
 
             confidence_score = penalize_for_missing_evidence(
                 float(llm_score.confidence_score),
