@@ -87,6 +87,7 @@ class CapitalChannel(BaseModel):
 
 
 class ScoringPolicy(BaseModel):
+    version: str = Field(default="1.0", max_length=32)
     policy_components: list[PolicyComponent] = Field(min_length=1, max_length=6)
     hard_exclusions: list[HardExclusion] | None = Field(default=None, max_length=20)
     capital_channels: list[CapitalChannel] | None = Field(default=None, max_length=10)
@@ -123,7 +124,8 @@ class ScoreInvestorsRequest(BaseModel):
     client: ClientProfile
     investors: list[InvestorInput] = Field(min_length=1, max_length=50)
     client_id: str | None = Field(default=None, max_length=200)
-    scoring_policy: ScoringPolicy | None = Field(default=None)
+    # Raw dict — validated lazily in the service so invalid policies fall back gracefully
+    scoring_policy: dict | None = Field(default=None)
 
 
 # ── Raw axis breakdown (internal only) ─────────────────────────────────────
@@ -181,9 +183,19 @@ class InvestorAdvisorScore(BaseModel):
     evidence_urls: list[str] = Field(default_factory=list, max_length=EVIDENCE_URLS_MAX)
 
 
+# ── Version bundle ──────────────────────────────────────────────────────────
+
+class VersionBundle(BaseModel):
+    scoring_policy_version: str
+    endpoint_version: str
+    prompt_version: str
+    model_version: str
+
+
 # ── Response ────────────────────────────────────────────────────────────────
 
 class ScoreInvestorsResponse(BaseModel):
     schema_version: str = Field(default=DEFAULT_SCHEMA_VERSION, max_length=32)
     results: list[InvestorScore]
     advisor_data: list[InvestorAdvisorScore]
+    version_bundle: VersionBundle

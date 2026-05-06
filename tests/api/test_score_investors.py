@@ -523,8 +523,8 @@ def test_policy_null_falls_back_to_client_profile(client) -> None:
     assert composite > 0
 
 
-def test_policy_guidance_injection_rejected(client) -> None:
-    """guidance containing a prompt injection pattern is rejected with 422."""
+def test_policy_guidance_injection_falls_back(client) -> None:
+    """guidance containing a prompt injection pattern triggers fallback (200, not 422)."""
     res = client.post(
         "/score-investors",
         json={
@@ -541,4 +541,79 @@ def test_policy_guidance_injection_rejected(client) -> None:
             },
         },
     )
-    assert res.status_code == 422
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert body["data"]["version_bundle"]["scoring_policy_version"] == "fallback"
+
+
+# ── version_bundle + fallback tests ────────────────────────────────────────
+
+def test_version_bundle_present_on_every_response(client) -> None:
+    """Every response includes version_bundle with all four fields."""
+    res = client.post(
+        "/score-investors",
+        json={
+            "client": {"name": "NovaBio", "thesis": "Diagnostics"},
+            "investors": [{"name": "Acme VC"}],
+        },
+    )
+    assert res.status_code == 200
+    vb = res.json()["data"]["version_bundle"]
+    assert vb["scoring_policy_version"] == "none"
+    assert vb["endpoint_version"]
+    assert vb["prompt_version"]
+    assert vb["model_version"]
+
+
+def test_version_bundle_scoring_policy_version_with_valid_policy(client) -> None:
+    """scoring_policy_version echoes the policy version field when policy is valid."""
+    res = client.post(
+        "/score-investors",
+        json={
+            "client": {"name": "NovaBio", "thesis": "Diagnostics"},
+            "investors": [{"name": "Acme VC"}],
+            "scoring_policy": {
+                "version": "2.0",
+                "policy_components": [{"axis": "thesis_alignment", "weight": 1.0}],
+            },
+        },
+    )
+    assert res.status_code == 200
+    vb = res.json()["data"]["version_bundle"]
+    assert vb["scoring_policy_version"] == "2.0"
+
+
+def test_policy_invalid_fields_falls_back_to_client_profile(client) -> None:
+    """Invalid policy field (weight=-1) → 200 fallback, scoring_policy_version=fallback."""
+    res = client.post(
+        "/score-investors",
+        json={
+            "client": {"name": "NovaBio", "thesis": "Diagnostics"},
+            "investors": [{"name": "Acme VC"}],
+            "scoring_policy": {
+                "policy_components": [{"axis": "thesis_alignment", "weight": -1.0}],
+            },
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert body["data"]["version_bundle"]["scoring_policy_version"] == "fallback"
+    assert body["data"]["results"][0]["composite_score"] > 0
+
+
+def test_policy_missing_required_fields_falls_back(client) -> None:
+    """Missing required policy_components → 200 fallback."""
+    res = client.post(
+        "/score-investors",
+        json={
+            "client": {"name": "NovaBio", "thesis": "Diagnostics"},
+            "investors": [{"name": "Acme VC"}],
+            "scoring_policy": {"hard_exclusions": []},
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert body["data"]["version_bundle"]["scoring_policy_version"] == "fallback"
