@@ -35,6 +35,11 @@ DIGEST_BULLET_MAX: int = 500
 DIGEST_SIGNAL_SUMMARY_MAX: int = 1000
 DIGEST_RECOMMENDED_ACTION_MAX: int = 500
 
+# scoring_policy input field limits
+POLICY_GUIDANCE_MAX: int = 300
+POLICY_TERM_MAX: int = 100
+POLICY_REASON_MAX: int = 200
+
 # advisor prep field limits
 ADVISOR_ANGLE_MAX: int = 1000
 ADVISOR_AVOID_MAX: int = 500

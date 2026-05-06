@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.config import DEFAULT_SCHEMA_VERSION
 from app.models.common import Confidence
@@ -14,8 +14,12 @@ from app.services._field_limits import (
     NARRATIVE_MAX,
     NOTES_MAX,
     OUTREACH_MAX,
+    POLICY_GUIDANCE_MAX,
+    POLICY_REASON_MAX,
+    POLICY_TERM_MAX,
     TOP_CLAIMS_MAX,
 )
+from app.services._llm_normalizers import sanitize_freeform_field
 
 PipelineStatus = Literal[
     "uncontacted",
@@ -42,6 +46,59 @@ ClientProfileType = Literal[
 
 ScoringModifier = Literal["ai_enabled", "rpm_saas", "cross_border_ca", "ruo_no_reg"]
 
+AxisName = Literal[
+    "thesis_alignment",
+    "stage_fit",
+    "check_size_fit",
+    "scientific_regulatory_fit",
+    "recency",
+    "geography",
+]
+
+
+class SoftBoost(BaseModel):
+    term: str = Field(min_length=1, max_length=POLICY_TERM_MAX)
+    multiplier: float = Field(ge=0.1, le=3.0)
+
+
+class PolicyComponent(BaseModel):
+    axis: AxisName
+    weight: float = Field(gt=0.0)
+    guidance: str | None = Field(default=None, max_length=POLICY_GUIDANCE_MAX)
+    soft_boosts: list[SoftBoost] = Field(default_factory=list, max_length=5)
+
+    @field_validator("guidance", mode="before")
+    @classmethod
+    def _sanitize_guidance(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        return sanitize_freeform_field(v, max_chars=POLICY_GUIDANCE_MAX, field_name="guidance")
+
+
+class HardExclusion(BaseModel):
+    match_term: str = Field(min_length=1, max_length=POLICY_TERM_MAX)
+    reason: str | None = Field(default=None, max_length=POLICY_REASON_MAX)
+
+
+class CapitalChannel(BaseModel):
+    match_term: str = Field(min_length=1, max_length=POLICY_TERM_MAX)
+    multiplier: float = Field(ge=0.1, le=3.0)
+    reason: str | None = Field(default=None, max_length=POLICY_REASON_MAX)
+
+
+class ScoringPolicy(BaseModel):
+    policy_components: list[PolicyComponent] = Field(min_length=1, max_length=6)
+    hard_exclusions: list[HardExclusion] | None = Field(default=None, max_length=20)
+    capital_channels: list[CapitalChannel] | None = Field(default=None, max_length=10)
+
+    @field_validator("policy_components")
+    @classmethod
+    def _no_duplicate_axes(cls, v: list[PolicyComponent]) -> list[PolicyComponent]:
+        axes = [c.axis for c in v]
+        if len(axes) != len(set(axes)):
+            raise ValueError("Duplicate axes in policy_components are not allowed")
+        return v
+
 
 class ClientProfile(BaseModel):
     name: str = Field(min_length=1, max_length=200)
@@ -66,6 +123,7 @@ class ScoreInvestorsRequest(BaseModel):
     client: ClientProfile
     investors: list[InvestorInput] = Field(min_length=1, max_length=50)
     client_id: str | None = Field(default=None, max_length=200)
+    scoring_policy: ScoringPolicy | None = Field(default=None)
 
 
 # ── Raw axis breakdown (internal only) ─────────────────────────────────────
