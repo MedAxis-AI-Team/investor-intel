@@ -259,6 +259,6 @@ def test_gap_investors_limit_param():
     resp = client.get(f"/ingest/investor-gap/{_CLIENT_UUID}?limit=5")
 
     assert resp.status_code == 200
-    # Verify the limit value was passed as second positional arg to fetch (after SQL + client_uuid)
+    # Verify the limit value was passed as the last positional arg to fetch (SQL + uuid + str_uuid + limit)
     call_args = conn.fetch.call_args
-    assert call_args.args[2] == 5
+    assert call_args.args[3] == 5
